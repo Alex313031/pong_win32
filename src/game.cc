@@ -4,6 +4,7 @@
 
 #include "globals.h"
 #include "resource.h"
+#include "utils.h"
 
 namespace {
 
@@ -11,8 +12,8 @@ namespace {
 // digit silhouette is always visible (this is what Win 3.1/95 Minesweeper and
 // most pocket calculators do). Painting unlit segments instead of leaving them
 // as bare background also means we don't need a separate "8 8 8" backdrop pass.
-constexpr COLORREF kSegOn  = RGB(255, 40, 40);
-constexpr COLORREF kSegOff = RGB(48, 0, 0);
+constexpr COLORREF kSegOn  = RGB(255, 0, 0);
+constexpr COLORREF kSegOff = RGB(50, 0, 0);
 
 // Per-digit segment bitmasks. Bit layout: 0=a 1=b 2=c 3=d 4=e 5=f 6=g, matching
 // the conventional 7-seg labeling:
@@ -63,25 +64,36 @@ constexpr int kDisplayW    = kDigitW * 3 + kDigitGap * 2;
 // state-message text and the rackets can't drift up into the score area.
 constexpr int kPlayfieldTopY = kEdgeMarginY + kDigitH + kEdgeMarginY;
 
-// Court center line. White on g_bkg_color, drawn vertically through the
-// midpoint of the client area. The line's top is clamped to kPlayfieldTopY
-// so it can't intrude on the score / state-message strip; kCenterLineMarginY
+// Court center line. White dashes on g_bkg_color, drawn vertically through
+// the midpoint of the client area. The top is clamped to kPlayfieldTopY so
+// it can't intrude on the score / state-message strip; kCenterLineMarginY
 // is the gap left at the bottom of the client so the line doesn't run all
-// the way to the chrome / status bar edge. kCenterLineThickness is its width.
+// the way to the chrome / status bar edge. kCenterLineThickness is the
+// dash width. kCenterLineDashCount is the *fixed* number of dashes - dash
+// and gap heights are derived from the available vertical space at draw
+// time so a resize keeps the count constant and just stretches the spacing.
 constexpr COLORREF kCenterLineColor = RGB(255, 255, 255);
 constexpr int kCenterLineMarginY    = 14;
 constexpr int kCenterLineThickness  = 6;
+constexpr int kCenterLineDashCount  = 20;
 
 // Rackets. Two white rectangles, one anchored at each side. kRacketEdgeMarginX
-// is the gap from the window edge to the racket's outer side; kRacketStepPx
+// is the gap from the window edge to the racket's outer side. kRacketStepPx
 // is how far the player's racket moves per WM_TIMER tick while an arrow key
-// is held. Tick rate is ~60fps (see kGameTickDelay / SetTimer in InitApp), so
-// step * 60 is roughly the racket's vertical px/sec.
-constexpr COLORREF kRacketColor   = RGB(255, 255, 255);
-constexpr int kRacketW            = 14;
-constexpr int kRacketH            = 90;
-constexpr int kRacketEdgeMarginX  = 20;
-constexpr int kRacketStepPx       = 6;
+// is held; kMachineRacketStepPx is the same for the CPU's tracking AI. Tick
+// rate is ~60fps (see kGameTickDelay / SetTimer in InitApp), so step * 60 is
+// roughly the racket's vertical px/sec. Splitting the two lets us nerf or
+// buff the AI without touching the player's responsiveness.
+// Player rackets are green, machine rackets are blue - colour follows the
+// role, not the physical side, so toggling g_player_on_left swaps which
+// side is green and which is blue.
+constexpr COLORREF kPlayerRacketColor  = RGB_GREEN;
+constexpr COLORREF kMachineRacketColor = RGB_BLUE;
+constexpr int kRacketW                 = 14;
+constexpr int kRacketH                 = 80;
+constexpr int kRacketEdgeMarginX       = 18;
+constexpr int kRacketStepPx            = 6;
+constexpr int kMachineRacketStepPx     = kRacketStepPx / 2;
 
 // Ball. Square, white, kBallSize on a side. kBallSpeed is the magnitude of
 // the per-tick velocity vector; (dx, dy) decomposes it via cos/sin so the
@@ -109,7 +121,7 @@ unsigned int g_machine_score = 0;
 // Racket state. -1 means "not yet centered" - WM_CREATE / InitRackets fires
 // before WM_SIZE so we can't pick a y until cyClient is known. The first
 // WM_TIMER tick where it is non-zero does the centering.
-bool g_player_on_left = true;
+bool g_player_on_left = false;
 int g_left_racket_y   = -1;
 int g_right_racket_y  = -1;
 
@@ -131,20 +143,6 @@ float g_ball_dy     = 0.0f;
 // PRNG for picking the ball's initial direction. random_device-seeded so
 // successive runs don't keep launching the ball the same way.
 std::mt19937 g_rng{std::random_device{}()};
-
-// Fills a convex polygon with a solid color. Pen and brush share the color
-// so the rasterized outline doesn't leave a 1px halo around the fill.
-void FillPolygon(HDC hdc, const POINT* pts, int count, COLORREF color) {
-  HBRUSH hbr     = CreateSolidBrush(color);
-  HPEN hpen      = CreatePen(PS_SOLID, 1, color);
-  HGDIOBJ oldbr  = SelectObject(hdc, hbr);
-  HGDIOBJ oldpen = SelectObject(hdc, hpen);
-  Polygon(hdc, pts, count);
-  SelectObject(hdc, oldbr);
-  SelectObject(hdc, oldpen);
-  DeleteObject(hbr);
-  DeleteObject(hpen);
-}
 
 // Draws a single digit in the cell at (x, y). `digit` outside 0-9 paints all
 // segments off (useful if we ever want to show blanks).
@@ -251,9 +249,9 @@ void DrawDigit(HDC hdc, int x, int y, int w, int h, int t, int digit) {
   }
 }
 
-// Bounding rect of a display in client coords. left_side picks the player
-// (top-left) vs the machine (top-right). Centralized so Update's invalidation
-// and Draw's positioning can't drift apart.
+// Bounding rect of a display in client coords. left_side picks the top-left
+// vs top-right slot. Centralized so Update's invalidation and Draw's
+// positioning can't drift apart.
 RECT DisplayRect(int client_width, bool left_side) {
   RECT r;
   r.top    = kEdgeMarginY;
@@ -281,6 +279,15 @@ void DrawOneDisplay(HDC hdc, int origin_x, int origin_y, unsigned int score) {
   DrawDigit(hdc, origin_x,              origin_y, kDigitW, kDigitH, kSegT, d_hundreds);
   DrawDigit(hdc, origin_x + stride,     origin_y, kDigitW, kDigitH, kSegT, d_tens);
   DrawDigit(hdc, origin_x + stride * 2, origin_y, kDigitW, kDigitH, kSegT, d_ones);
+}
+
+// Display rect for the player's score (for_player == true) or the machine's
+// (false). The player's score lives over their own racket, so it swaps sides
+// with g_player_on_left. Both DrawSegmentDisplays and UpdateSegmentDisplay's
+// invalidation route through here.
+RECT DisplayRectFor(int client_width, bool for_player) {
+  const bool left_side = (g_player_on_left == for_player);
+  return DisplayRect(client_width, left_side);
 }
 
 // Left-edge x of the racket on the given side.
@@ -322,6 +329,73 @@ void CenterRackets() {
   const int centered    = kPlayfieldTopY + (playfield_h - kRacketH) / 2;
   g_left_racket_y       = centered;
   g_right_racket_y      = centered;
+}
+
+// Applies a target y to one racket: clamps to the playfield, updates the
+// state, and invalidates just the union of the old and new positions in
+// that racket's column (so neither score displays, the centre line, nor
+// the other racket end up in the dirty region).
+void MoveRacket(HWND hWnd, int* racket_y, bool is_left, int target_y) {
+  const int old_y = *racket_y;
+  const int new_y = ClampRacketY(target_y);
+  if (new_y == old_y) {
+    return;
+  }
+  *racket_y = new_y;
+  RECT r;
+  r.left   = RacketX(cxClient, is_left);
+  r.right  = r.left + kRacketW;
+  r.top    = (old_y < new_y) ? old_y : new_y;
+  r.bottom = ((old_y > new_y) ? old_y : new_y) + kRacketH;
+  InvalidateRect(hWnd, &r, FALSE);
+}
+
+// Reads arrow-key state and moves the player's racket. Gated on our window
+// being foreground so a key held while another app is active doesn't drive
+// our paddle.
+void TickPlayerRacket(HWND hWnd) {
+  if (GetForegroundWindow() != hWnd) {
+    return;
+  }
+  const bool up   = (GetAsyncKeyState(VK_UP)   & 0x8000) ||
+                    (GetAsyncKeyState(VK_LEFT) & 0x8000);
+  const bool down = (GetAsyncKeyState(VK_DOWN)  & 0x8000) ||
+                    (GetAsyncKeyState(VK_RIGHT) & 0x8000);
+  if (!up && !down) {
+    return;
+  }
+  int* y     = g_player_on_left ? &g_left_racket_y : &g_right_racket_y;
+  int target = *y;
+  if (up) {
+    target -= kRacketStepPx;
+  }
+  if (down) {
+    target += kRacketStepPx;
+  }
+  MoveRacket(hWnd, y, g_player_on_left, target);
+}
+
+// CPU racket AI: track the ball's centre y, capped at kMachineRacketStepPx
+// per tick. A small dead-zone of half a step prevents 1-pixel back-and-forth
+// jitter when the racket is already on top of the ball. Tracks regardless
+// of which way the ball is moving - same as the original Pong CPU; if we
+// ever want to make it more humanly imperfect, this is where to do it.
+void TickMachineRacket(HWND hWnd) {
+  if (!g_ball_spawned) {
+    return;
+  }
+  const bool machine_on_left = !g_player_on_left;
+  int* y                     = machine_on_left ? &g_left_racket_y
+                                               : &g_right_racket_y;
+  const float ball_cy        = g_ball_y + 0.5f * kBallSize;
+  const float racket_cy      = *y + 0.5f * kRacketH;
+  const float diff           = ball_cy - racket_cy;
+  const float dead_zone      = 0.5f * kMachineRacketStepPx;
+  if (diff > dead_zone) {
+    MoveRacket(hWnd, y, machine_on_left, *y + kMachineRacketStepPx);
+  } else if (diff < -dead_zone) {
+    MoveRacket(hWnd, y, machine_on_left, *y - kMachineRacketStepPx);
+  }
 }
 
 // Places the ball at the centre of the playfield and gives it a velocity at
@@ -376,16 +450,16 @@ void UpdateSegmentDisplay(bool player_display, unsigned int score) {
   // Invalidate just the affected display's rect rather than the whole
   // client - keeps a 60 fps tick of score updates from forcing a full
   // window repaint when only six digits' worth of pixels could change.
-  RECT r = DisplayRect(cxClient, player_display);
+  RECT r = DisplayRectFor(cxClient, player_display);
   InvalidateRect(mainHwnd, &r, FALSE);
 }
 
 void DrawSegmentDisplays(HDC hdc, const RECT& client) {
-  const int width = client.right - client.left;
-  const RECT lr   = DisplayRect(width, /*left_side=*/true);
-  const RECT rr   = DisplayRect(width, /*left_side=*/false);
-  DrawOneDisplay(hdc, lr.left, lr.top, g_player_score);
-  DrawOneDisplay(hdc, rr.left, rr.top, g_machine_score);
+  const int width      = client.right - client.left;
+  const RECT player_r  = DisplayRectFor(width, /*for_player=*/true);
+  const RECT machine_r = DisplayRectFor(width, /*for_player=*/false);
+  DrawOneDisplay(hdc, player_r.left,  player_r.top,  g_player_score);
+  DrawOneDisplay(hdc, machine_r.left, machine_r.top, g_machine_score);
 }
 
 void DrawCenterLine(HDC hdc, const RECT& client) {
@@ -393,14 +467,29 @@ void DrawCenterLine(HDC hdc, const RECT& client) {
   // before adding the thickness back keeps the line symmetric around that
   // midpoint for any even kCenterLineThickness; for odd values the line is
   // off by half a pixel, which is unavoidable in integer coords.
-  const int midX = (client.left + client.right) / 2;
-  RECT r;
-  r.left   = midX - kCenterLineThickness / 2;
-  r.right  = r.left + kCenterLineThickness;
-  r.top    = client.top + kPlayfieldTopY;
-  r.bottom = client.bottom - kCenterLineMarginY;
-  HBRUSH hbr = CreateSolidBrush(kCenterLineColor);
-  FillRect(hdc, &r, hbr);
+  const int midX   = (client.left + client.right) / 2;
+  const int x_left = midX - kCenterLineThickness / 2;
+  const int top    = client.top + kPlayfieldTopY;
+  const int bottom = client.bottom - kCenterLineMarginY;
+  const int total  = bottom - top;
+  if (total <= 0 || kCenterLineDashCount <= 0) {
+    return;
+  }
+  // Layout: N dashes with N-1 gaps between them, dash-h == gap-h. That's
+  // 2N - 1 equal slots packed into `total`. Computing each slot's bounds
+  // as (i * total) / slots inside the loop lets the integer division
+  // spread any leftover pixels evenly across the dashes instead of
+  // dumping them at one end.
+  const int slots = 2 * kCenterLineDashCount - 1;
+  HBRUSH hbr      = CreateSolidBrush(kCenterLineColor);
+  for (int i = 0; i < kCenterLineDashCount; ++i) {
+    RECT r;
+    r.left   = x_left;
+    r.right  = x_left + kCenterLineThickness;
+    r.top    = top + (2 * i) * total / slots;
+    r.bottom = top + (2 * i + 1) * total / slots;
+    FillRect(hdc, &r, hbr);
+  }
   DeleteObject(hbr);
 }
 
@@ -425,9 +514,9 @@ void TickRackets(HWND hWnd) {
     return;
   }
   // Lazy-centre on the first tick that has a real cyClient. We invalidate
-  // and skip the input read so the rackets appear immediately on this frame
-  // and key handling starts the frame after - simpler than threading state
-  // for "just centred".
+  // and skip the input/AI step so the rackets appear immediately on this
+  // frame and start tracking next frame - simpler than threading state for
+  // "just centred".
   if (g_left_racket_y < 0 || g_right_racket_y < 0) {
     if (cyClient <= 0) {
       return;
@@ -436,44 +525,8 @@ void TickRackets(HWND hWnd) {
     InvalidateRect(hWnd, nullptr, FALSE);
     return;
   }
-  // GetAsyncKeyState reads the global keyboard state, so a key held while
-  // another app is foreground would still register here. Gate on
-  // foreground-ness to keep arrow presses in (say) the user's editor from
-  // sliding our paddle around in the background.
-  if (GetForegroundWindow() != hWnd) {
-    return;
-  }
-  const bool up   = (GetAsyncKeyState(VK_UP)   & 0x8000) ||
-                    (GetAsyncKeyState(VK_LEFT) & 0x8000);
-  const bool down = (GetAsyncKeyState(VK_DOWN)  & 0x8000) ||
-                    (GetAsyncKeyState(VK_RIGHT) & 0x8000);
-  if (!up && !down) {
-    return;
-  }
-  int* y = g_player_on_left ? &g_left_racket_y : &g_right_racket_y;
-  const int old_y = *y;
-  int new_y       = old_y;
-  if (up) {
-    new_y -= kRacketStepPx;
-  }
-  if (down) {
-    new_y += kRacketStepPx;
-  }
-  new_y = ClampRacketY(new_y);
-  if (new_y == old_y) {
-    return;
-  }
-  *y = new_y;
-  // Invalidate just the union of the racket's old and new positions in its
-  // own column. Keeps the score displays, center line and the opposite
-  // racket out of the dirty region so we don't repaint the whole window
-  // every frame the player is moving.
-  RECT r;
-  r.left   = RacketX(cxClient, g_player_on_left);
-  r.right  = r.left + kRacketW;
-  r.top    = (old_y < new_y) ? old_y : new_y;
-  r.bottom = ((old_y > new_y) ? old_y : new_y) + kRacketH;
-  InvalidateRect(hWnd, &r, FALSE);
+  TickPlayerRacket(hWnd);
+  TickMachineRacket(hWnd);
 }
 
 void DrawRackets(HDC hdc, const RECT& client) {
@@ -483,10 +536,18 @@ void DrawRackets(HDC hdc, const RECT& client) {
   const int width = client.right - client.left;
   const RECT lr   = RacketRect(width, /*left_side=*/true,  g_left_racket_y);
   const RECT rr   = RacketRect(width, /*left_side=*/false, g_right_racket_y);
-  HBRUSH hbr      = CreateSolidBrush(kRacketColor);
-  FillRect(hdc, &lr, hbr);
-  FillRect(hdc, &rr, hbr);
-  DeleteObject(hbr);
+  // Colour by role rather than position: the player's racket is always
+  // green and the machine's always blue, no matter which side they're on.
+  const COLORREF left_color  = g_player_on_left ? kPlayerRacketColor
+                                                : kMachineRacketColor;
+  const COLORREF right_color = g_player_on_left ? kMachineRacketColor
+                                                : kPlayerRacketColor;
+  HBRUSH lbr = CreateSolidBrush(left_color);
+  HBRUSH rbr = CreateSolidBrush(right_color);
+  FillRect(hdc, &lr, lbr);
+  FillRect(hdc, &rr, rbr);
+  DeleteObject(lbr);
+  DeleteObject(rbr);
 }
 
 void InitBall(HWND hWnd) {
@@ -570,6 +631,28 @@ void TickBall(HWND hWnd) {
   g_ball_x = nx;
   g_ball_y = ny;
 
+  // Scoring: a ball that has fully exited the client area on one side hands
+  // a point to the *other* side, then respawns at centre with a fresh random
+  // angle. We treat the screen edge as the scoring line rather than the
+  // racket's x, since once the ball is past the racket the racket has
+  // already missed it - the rest of the travel is just animation.
+  const bool off_left  = (g_ball_x + kBallSize < 0.0f);
+  const bool off_right = (g_ball_x > static_cast<float>(cxClient));
+  if (off_left || off_right) {
+    // Off-left means the right side scored, and vice versa.
+    const bool left_side_scored   = off_right;
+    const bool player_scored      = (g_player_on_left == left_side_scored);
+    const unsigned int next_score = player_scored ? g_player_score + 1
+                                                  : g_machine_score + 1;
+    UpdateSegmentDisplay(player_scored, next_score);
+    SpawnBall();
+    // Full-client invalidate: the ball jumped from off-screen to the centre,
+    // so a tight dirty rect would have to span half the playfield - cheaper
+    // (and simpler) to just repaint everything for the one frame.
+    InvalidateRect(hWnd, nullptr, FALSE);
+    return;
+  }
+
   // Invalidate the bounding rect of the ball's old + new positions. floor
   // on min, ceil on max so the dirty region covers every pixel either rect
   // could touch even with fractional positions.
@@ -590,12 +673,23 @@ void DrawBall(HDC hdc, const RECT& client) {
   if (!g_ball_spawned) {
     return;
   }
+  const int x = static_cast<int>(std::floor(g_ball_x));
+  const int y = static_cast<int>(std::floor(g_ball_y));
   RECT r;
-  r.left   = static_cast<int>(std::floor(g_ball_x));
-  r.top    = static_cast<int>(std::floor(g_ball_y));
-  r.right  = r.left + kBallSize;
-  r.bottom = r.top + kBallSize;
+  r.left   = x;
+  r.top    = y;
+  r.right  = x + kBallSize;
+  r.bottom = y + kBallSize;
   HBRUSH hbr = CreateSolidBrush(kBallColor);
   FillRect(hdc, &r, hbr);
   DeleteObject(hbr);
+  // Knock out the four corner pixels so the silhouette reads as a slightly
+  // rounded square rather than a hard rectangle. Painting them back to
+  // g_bkg_color works because the dirty rect was just filled with that
+  // colour in WM_PAINT before us - the corner pixels were re-covered by
+  // FillRect above and we're now undoing that for those four pixels.
+  SetPixel(hdc, x,                 y,                 g_bkg_color);
+  SetPixel(hdc, x + kBallSize - 1, y,                 g_bkg_color);
+  SetPixel(hdc, x,                 y + kBallSize - 1, g_bkg_color);
+  SetPixel(hdc, x + kBallSize - 1, y + kBallSize - 1, g_bkg_color);
 }

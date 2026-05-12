@@ -66,6 +66,10 @@ HFONT GetFont(int size, std::wstring font = L"Tahoma", bool italic = true);
 // can't forget the DeleteObject and leak a GDI brush).
 bool FillRectWithColor(HDC hdc, const RECT& rc, COLORREF color);
 
+// Fills a convex polygon with a solid color. Pen and brush share the color
+// so the rasterized outline doesn't leave a 1px halo around the fill.
+void FillPolygon(HDC hdc, const POINT* pts, int count, COLORREF color);
+
 // Fills a rect with a vertical gradient: rc.top maps to topColor and
 // rc.bottom maps to bottomColor, linearly interpolated per scan line.
 // One row per pixel - simple and avoids needing GdiGradientFill /

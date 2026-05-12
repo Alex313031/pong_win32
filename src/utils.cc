@@ -48,6 +48,20 @@ bool FillRectWithColor(HDC hdc, const RECT& rc, COLORREF color) {
   return ok;
 }
 
+// Fills a convex polygon with a solid color. Pen and brush share the color
+// so the rasterized outline doesn't leave a 1px halo around the fill.
+void FillPolygon(HDC hdc, const POINT* pts, int count, COLORREF color) {
+  HBRUSH hbr     = CreateSolidBrush(color);
+  HPEN hpen      = CreatePen(PS_SOLID, 1, color);
+  HGDIOBJ oldbr  = SelectObject(hdc, hbr);
+  HGDIOBJ oldpen = SelectObject(hdc, hpen);
+  Polygon(hdc, pts, count);
+  SelectObject(hdc, oldbr);
+  SelectObject(hdc, oldpen);
+  DeleteObject(hbr);
+  DeleteObject(hpen);
+}
+
 void FillRectWithGradient(HDC hdc,
                           const RECT& rc,
                           COLORREF topColor,
