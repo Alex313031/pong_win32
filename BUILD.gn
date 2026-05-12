@@ -1,0 +1,40 @@
+# Copyright 2026 Alex313031
+
+executable("pong_win32") {
+  configs += [
+    ":pong_win32_config",
+  ]
+  precompiled_header = "src/framework.h"
+  precompiled_source = "src/pch.cc"
+  sources = [
+    "src/framework.h",
+    "src/globals.h",
+    "src/main.cc",
+    "src/main.h",
+    "src/game.cc",
+    "src/game.h",
+    "src/pong_win32.rc",
+    "src/resource.h",
+    "src/utils.cc",
+    "src/utils.h",
+    "src/version.h",
+  ]
+}
+
+config("pong_win32_config") {
+  defines = []
+  cflags = []
+  include_dirs = [ "./src", ]
+  cflags += [
+    "-Wunused-function",
+  ]
+  libs = [
+    "kernel32",
+    "user32",
+    "shell32",
+    "comctl32",
+    "comdlg32",
+    "gdi32",
+    "winmm",
+  ]
+}
