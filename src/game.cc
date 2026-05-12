@@ -112,6 +112,12 @@ constexpr int kRacketEdgeMarginX       = 18;
 constexpr int kRacketStepPx            = 6;
 constexpr int kMachineRacketStepPx     = kRacketStepPx / 2;
 
+// Yellow guide circle at the ball's spawn point, 1-px outline, diameter
+// == kRacketH. Painted before the center line and rackets / ball so they
+// all overdraw it - the circle is only visible while no other element is
+// directly over it.
+constexpr COLORREF kSpawnCircleColor = RGB_YELLOW;
+
 // Ball. Square, white, kBallSize on a side. kBallSpeed is the magnitude of
 // the per-tick velocity vector; (dx, dy) decomposes it via cos/sin so the
 // ball travels at the same speed regardless of launch angle. Position is
@@ -349,21 +355,6 @@ int ClampRacketY(int y) {
   return y;
 }
 
-// Sets both racket y's to the vertical centre of the *playfield* (the slice
-// of the client area below kPlayfieldTopY), not the whole client - otherwise
-// the racket would sit visually high because the score strip eats the top of
-// the window. No-op when cyClient isn't known yet (the lazy-init path in
-// TickRackets retries every frame until WM_SIZE has fired).
-void CenterRackets() {
-  if (cyClient <= 0) {
-    return;
-  }
-  const int playfield_h = cyClient - kPlayfieldTopY;
-  const int centered    = kPlayfieldTopY + (playfield_h - kRacketH) / 2;
-  g_left_racket_y       = centered;
-  g_right_racket_y      = centered;
-}
-
 // Applies a target y to one racket: clamps to the playfield, updates the
 // state, and invalidates just the union of the old and new positions in
 // that racket's column (so neither score displays, the centre line, nor
@@ -546,6 +537,29 @@ void DrawPlayfieldDivider(HDC hdc, const RECT& client) {
   DeleteObject(hbr);
 }
 
+void DrawSpawnCircle(HDC hdc, const RECT& client) {
+  // Centre matches SpawnBall's choice: horizontal middle of the client,
+  // vertical middle of the playfield slice (the half below kPlayfieldTopY).
+  const int playfield_top    = client.top + kPlayfieldTopY;
+  const int playfield_height = client.bottom - playfield_top;
+  if (playfield_height <= 0) {
+    return;
+  }
+  const int cx     = (client.left + client.right) / 2;
+  const int cy     = playfield_top + playfield_height / 2;
+  const int radius = kRacketH / 2;
+  // Outline-only ellipse: NULL_BRUSH leaves the interior transparent, the
+  // 1-px pen draws the boundary. GetStockObject brushes are owned by GDI
+  // and must NOT be DeleteObject'd, so we just restore the prior selection.
+  HPEN hPen     = CreatePen(PS_SOLID, 1, kSpawnCircleColor);
+  HGDIOBJ oldP  = SelectObject(hdc, hPen);
+  HGDIOBJ oldBr = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+  Ellipse(hdc, cx - radius, cy - radius, cx + radius, cy + radius);
+  SelectObject(hdc, oldP);
+  SelectObject(hdc, oldBr);
+  DeleteObject(hPen);
+}
+
 void DrawMessageArea(HDC hdc, const RECT& client) {
   // Inner gap between each score display and the message area mirrors the
   // gap between each display and the window edge (kEdgeMarginX), so the
@@ -698,6 +712,33 @@ void InitBall(HWND hWnd) {
   // TickBall will retry every frame until WM_SIZE has fired.
   SpawnBall();
   InvalidateRect(hWnd, nullptr, FALSE);
+}
+
+void CenterBallAtSpawn() {
+  if (!g_ball_spawned || cxClient <= 0 || cyClient <= 0) {
+    return;
+  }
+  // Same formula as SpawnBall, but no velocity / spawn-flag changes - we
+  // just want the resting ball to track the playfield centre as the window
+  // is resized.
+  g_ball_x = 0.5f * cxClient - 0.5f * kBallSize;
+  g_ball_y = kPlayfieldTopY + 0.5f * (cyClient - kPlayfieldTopY) -
+             0.5f * kBallSize;
+}
+
+// Sets both racket y's to the vertical centre of the *playfield* (the slice
+// of the client area below kPlayfieldTopY), not the whole client - otherwise
+// the racket would sit visually high because the score strip eats the top of
+// the window. No-op when cyClient isn't known yet (the lazy-init path in
+// TickRackets retries every frame until WM_SIZE has fired).
+void CenterRackets() {
+  if (cyClient <= 0) {
+    return;
+  }
+  const int playfield_h = cyClient - kPlayfieldTopY;
+  const int centered    = kPlayfieldTopY + (playfield_h - kRacketH) / 2;
+  g_left_racket_y       = centered;
+  g_right_racket_y      = centered;
 }
 
 void TickBall(HWND hWnd) {

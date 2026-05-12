@@ -71,7 +71,6 @@ BEGIN
         MENUITEM "&New Game",      IDM_NEWGAME
         MENUITEM "&Pause Game",    IDM_PAUSE
         MENUITEM SEPARATOR
-        MENUITEM "&Reset Game",      IDM_RESET
         MENUITEM "Play with &Human", IDM_HUMAN, GRAYED
     END
     POPUP "&Settings"

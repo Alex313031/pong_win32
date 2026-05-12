@@ -200,19 +200,24 @@ static void SyncPauseMenuCheck(HWND hWnd) {
                 MF_BYCOMMAND | (checked ? MF_CHECKED : MF_UNCHECKED));
 }
 
-// Middle-drag-to-resize state. We can't use the WM_NCLBUTTONDOWN trick
-// (which drops the OS into its modal sizing loop) because that loop
-// only exits on a *left* mouse-up. Instead we capture the mouse on
-// WM_MBUTTONDOWN, anchor the opposite corner, and drive SetWindowPos
-// directly from WM_MOUSEMOVE until WM_MBUTTONUP / WM_CAPTURECHANGED.
-// (Right-click is left free for a future popup menu.)
-static bool s_resizing                 = false;
-static POINT s_resize_start_screen     = {0, 0};
-static RECT s_resize_start_window      = {0, 0, 0, 0};
-static WPARAM s_resize_corner          = HTBOTTOMRIGHT;
+// Mouse-drag window manipulation:
+//   * Left-click drag in the client area  -> move the window.
+//   * Right-click drag in the client area -> resize from the nearest corner.
+//   * Middle click                        -> nothing.
+// We can't use the WM_NCLBUTTONDOWN/HTCAPTION trick for either because the
+// OS's modal move/size loop only exits on a *left* mouse-up - it'd work
+// for moves but resize uses the right button, so for consistency we drive
+// both manually: capture the mouse on button-down, snapshot the starting
+// window rect + cursor in screen coords, and update via SetWindowPos in
+// WM_MOUSEMOVE until the matching button-up or WM_CAPTURECHANGED.
+static bool s_moving               = false;
+static bool s_resizing             = false;
+static POINT s_drag_start_cursor   = {0, 0};
+static RECT s_drag_start_window    = {0, 0, 0, 0};
+static WPARAM s_resize_corner      = HTBOTTOMRIGHT;
 // Smallest window we'll let the right-drag resize produce. Mirrors the
 // floor in WM_GETMINMAXINFO so manual dragging can't undercut it.
-constexpr int kMinResizeWindowSide     = 200;
+constexpr int kMinResizeWindowSide = 200;
 
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
   switch (message) {
@@ -226,32 +231,31 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       TickRackets(hWnd);
       TickBall(hWnd);
       break;
-    case WM_RBUTTONDOWN: {
-      // Right-click pops up the Game submenu at the cursor. We grab
-      // the live menu off the window (vs LoadMenu / a fresh handle)
-      // so any future runtime menu state - greys, checks, etc. - is
-      // mirrored. TrackPopupMenu's selections come back as WM_COMMAND
-      // with the same IDs as the menu bar, so IDM_REPAINT / IDM_EXIT
-      // re-use their existing handlers automatically.
-      HMENU hMenuBar = GetMenu(hWnd);
-      if (hMenuBar != nullptr) {
-        HMENU hFileMenu = GetSubMenu(hMenuBar, 1);
-        if (hFileMenu != nullptr) {
-          POINT screenPt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-          ClientToScreen(hWnd, &screenPt);
-          TrackPopupMenu(hFileMenu, TPM_RIGHTBUTTON | TPM_LEFTALIGN,
-                         screenPt.x, screenPt.y, 0, hWnd, nullptr);
-        }
+    case WM_LBUTTONDOWN: {
+      // Start a click-and-drag window move. Snapshot cursor + window in
+      // screen coords, take the mouse capture so MOUSEMOVE keeps arriving
+      // when the cursor leaves the client area, and flip s_moving on.
+      // WM_MOUSEMOVE drives the actual reposition; WM_LBUTTONUP /
+      // WM_CAPTURECHANGED ends it. Guard against starting a second drag
+      // while a right-drag resize is in progress.
+      if (s_resizing) {
+        break;
       }
+      GetCursorPos(&s_drag_start_cursor);
+      GetWindowRect(hWnd, &s_drag_start_window);
+      SetCapture(hWnd);
+      s_moving = true;
       break;
     }
-    case WM_MBUTTONDOWN: {
-      // Start a middle-drag resize: pick the corner nearest the cursor
-      // (so the opposite corner stays anchored), snapshot the cursor
-      // and window in screen coords, take the mouse capture so we
-      // keep getting MOUSEMOVE messages even when the cursor leaves
-      // the client area, and flip s_resizing on. WM_MOUSEMOVE does
-      // the actual resize, WM_MBUTTONUP / WM_CAPTURECHANGED end it.
+    case WM_RBUTTONDOWN: {
+      // Start a right-drag resize: pick the corner nearest the cursor
+      // (so the opposite corner stays anchored), snapshot the cursor and
+      // window in screen coords, take the mouse capture, and flip
+      // s_resizing on. Guard against starting while a left-drag move is
+      // in progress.
+      if (s_moving) {
+        break;
+      }
       const int px = GET_X_LPARAM(lParam);
       const int py = GET_Y_LPARAM(lParam);
       RECT client;
@@ -267,13 +271,27 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       } else {
         s_resize_corner = HTBOTTOMRIGHT;
       }
-      GetCursorPos(&s_resize_start_screen);
-      GetWindowRect(hWnd, &s_resize_start_window);
+      GetCursorPos(&s_drag_start_cursor);
+      GetWindowRect(hWnd, &s_drag_start_window);
       SetCapture(hWnd);
       s_resizing = true;
       break;
     }
     case WM_MOUSEMOVE: {
+      if (s_moving) {
+        // Translate the window by the screen-space cursor delta since the
+        // drag started. SWP_NOSIZE keeps the current size; SWP_NOZORDER /
+        // SWP_NOACTIVATE avoid unrelated side-effects.
+        POINT cur;
+        GetCursorPos(&cur);
+        const int dx = cur.x - s_drag_start_cursor.x;
+        const int dy = cur.y - s_drag_start_cursor.y;
+        SetWindowPos(hWnd, nullptr,
+                     s_drag_start_window.left + dx,
+                     s_drag_start_window.top + dy,
+                     0, 0,
+                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
+      }
       if (s_resizing) {
         // Compute the new window rect by moving only the dragged
         // corner's two edges by the screen-space cursor delta. Then
@@ -282,9 +300,9 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
         // bottom out.
         POINT cur;
         GetCursorPos(&cur);
-        const int dx = cur.x - s_resize_start_screen.x;
-        const int dy = cur.y - s_resize_start_screen.y;
-        RECT r = s_resize_start_window;
+        const int dx = cur.x - s_drag_start_cursor.x;
+        const int dy = cur.y - s_drag_start_cursor.y;
+        RECT r = s_drag_start_window;
         switch (s_resize_corner) {
           case HTTOPLEFT:
             r.left += dx;
@@ -324,7 +342,12 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       }
       break;
     }
-    case WM_MBUTTONUP:
+    case WM_LBUTTONUP:
+      if (s_moving) {
+        ReleaseCapture();  // triggers WM_CAPTURECHANGED, which clears s_moving
+      }
+      break;
+    case WM_RBUTTONUP:
       if (s_resizing) {
         ReleaseCapture();  // triggers WM_CAPTURECHANGED, which clears s_resizing
       }
@@ -332,7 +355,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
     case WM_CAPTURECHANGED:
       // Fired when capture is released for any reason (our own
       // ReleaseCapture, an alt-tab, another window stealing it, etc.).
-      // Clearing here is the single point of truth for ending a drag.
+      // Single point of truth for ending either kind of drag.
+      s_moving   = false;
       s_resizing = false;
       break;
     case WM_APP_AUTOPLAY:
@@ -363,6 +387,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       RECT client;
       GetClientRect(hWnd, &client);
       FillRectWithColor(hdc, client, g_bkg_color);
+      DrawSpawnCircle(hdc, client);
       DrawPlayfieldDivider(hdc, client);
       DrawMessageArea(hdc, client);
       DrawCenterLine(hdc, client);
@@ -383,6 +408,14 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       }
       if (cyClient < 0) {
         cyClient = 0;
+      }
+      // Mid-play the ball and paddles are at game-state-driven positions
+      // and we don't want resizing to teleport them; but while the game is
+      // stopped (between matches / on the ready screen) everything should
+      // track the recentred playfield as the window changes shape.
+      if (!g_running) {
+        CenterBallAtSpawn();
+        CenterRackets();
       }
       break;
     }
@@ -456,12 +489,13 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
     case WM_QUERYENDSESSION:
       return TRUE;
     case WM_DESTROY:
-      // If the window is dying mid middle-drag-resize (e.g. Alt+F4
-      // while MMB is held), release capture explicitly. The OS would
-      // do it anyway when the window goes away, but being explicit
-      // means s_resizing stays in a consistent state.
-      if (s_resizing) {
+      // If the window is dying mid-drag (e.g. Alt+F4 while a mouse button
+      // is held), release capture explicitly. The OS would do it anyway
+      // when the window goes away, but being explicit keeps s_moving /
+      // s_resizing in a consistent state.
+      if (s_moving || s_resizing) {
         ReleaseCapture();
+        s_moving   = false;
         s_resizing = false;
       }
       KillTimer(hWnd, TIMER_GAME);

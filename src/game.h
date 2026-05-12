@@ -32,6 +32,11 @@ void DrawCenterLine(HDC hdc, const RECT& client);
 // the right edge of the right one, not all the way across the client.
 void DrawPlayfieldDivider(HDC hdc, const RECT& client);
 
+// Paints the 1-px yellow guide circle at the ball's spawn point. Should
+// be drawn before the center line, rackets, and ball so they all overdraw
+// it - the circle reveals itself wherever none of those are covering it.
+void DrawSpawnCircle(HDC hdc, const RECT& client);
+
 // Paints the 1-px frame around the state-message area between the two
 // score displays. Height matches the displays; horizontal padding to each
 // display matches the displays' padding to the window edge. Also renders
@@ -82,6 +87,16 @@ void ResetForNewGame(HWND hWnd);
 // happens lazily on the first WM_TIMER tick where cxClient/cyClient are
 // known, for the same WM_CREATE-before-WM_SIZE reason as InitRackets.
 void InitBall(HWND hWnd);
+
+// Snaps the ball back to the playfield's centre point (the same spot
+// SpawnBall picks), without disturbing its current velocity vector. Used
+// from WM_SIZE while the game is stopped so the resting ball tracks the
+// recentred playfield instead of drifting off relative to the new size.
+void CenterBallAtSpawn();
+
+// Snaps both rackets back to the vertical centre of the playfield. Same
+// resize-tracking purpose as CenterBallAtSpawn, but for the paddles.
+void CenterRackets();
 
 // Called from WM_TIMER. Advances the ball one step in its current direction
 // and invalidates just the union of its old and new rect.
