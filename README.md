@@ -1,6 +1,10 @@
-# Pong Win32
+# Pong Win32 &nbsp;<img src="./assets/48.png" height="38">
 
  - A classic Pong implementation in raw Win32 C++ and GDI.
+
+<p align="center">
+<img src="https://raw.githubusercontent.com/Alex313031/pong_win32/refs/heads/main/assets/screenshot.png" width="50%">
+</p>
 
 ## Motivation
 
