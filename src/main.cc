@@ -1,5 +1,5 @@
 /*------------------------------------------
-   Mother's Day Win32
+   Pong Win32
    Copyright (c) 2026 Alex313031
   ------------------------------------------*/
 
@@ -8,6 +8,7 @@
 #include "game.h"
 #include "globals.h"
 #include "resource.h"
+#include "strings.h"
 #include "utils.h"
 
 HWND mainHwnd = nullptr;
@@ -23,7 +24,7 @@ int cyClient = 0;
 // minimize" (restart the tick source) vs. a normal resize (no-op).
 static bool s_was_minimized = false;
 
-// Current background color. Defaults to blue;
+// Current background color. Defaults to black;
 COLORREF g_bkg_color = RGB_BLACK;
 
 bool g_debug_mode = is_debug;
@@ -48,11 +49,9 @@ bool RegisterWndClass(HINSTANCE hInstance, LPCWSTR className) {
   wndclass.hInstance   = hInstance;
   wndclass.hIcon       = kMainIcon;
   wndclass.hCursor     = LoadCursorW(nullptr, IDC_ARROW);
-  // We handle erase + paint ourselves - WM_ERASEBKGND
-  // returns TRUE and WM_PAINT fills with g_bkg_color. nullptr here skips
-  // the OS's pre-fill entirely so there's no flash of a wrong-colored
-  // window before our first WM_PAINT.
-  wndclass.hbrBackground = nullptr;
+  // We handle erase + paint ourselves - WM_ERASEBKGND returns
+  // TRUE and WM_PAINT fills with g_bkg_color. Set to black default as fallback.
+  wndclass.hbrBackground = CreateSolidBrush(g_bkg_color);
   wndclass.lpszMenuName  = MAKEINTRESOURCEW(IDR_MAIN);
   wndclass.lpszClassName = className;
   wndclass.hIconSm       = kSmallIcon;
@@ -290,15 +289,17 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
     }
     case WM_PAINT: {
       // WM_ERASEBKGND returned TRUE so Windows skipped its bg fill - we
-      // paint a vertical RGB_BLUE -> RGB_DARKBLUE gradient over the
-      // entire client rect (not just ps.rcPaint - we need the full
-      // client height so the gradient interpolation references the
-      // window, not the dirty region; BeginPaint's clip handles the
-      // rest). Then layer the heart on top via DrawHeart (its own DC).
+      // own the entire client rect here. Fill it with g_bkg_color
+      // (black by default, like the original Pong). Game elements
+      // (paddles, score, ball, state text) will be layered on top in
+      // later passes.
       PAINTSTRUCT ps;
       HDC hdc = BeginPaint(hWnd, &ps);
       RECT client;
       GetClientRect(hWnd, &client);
+      FillRectWithColor(hdc, client, g_bkg_color);
+      DrawCenterLine(hdc, client);
+      DrawSegmentDisplays(hdc, client);
       EndPaint(hWnd, &ps);
       break;
     }
@@ -375,6 +376,9 @@ bool InitApp(HWND hWnd) {
   }
   // ~33 fps tick rate.
   if (SetTimer(hWnd, TIMER_GAME, 30, nullptr) == 0) {
+    return false;
+  }
+  if (!InitSegmentDisplays(hWnd)) {
     return false;
   }
   return true;
