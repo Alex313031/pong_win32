@@ -18,6 +18,8 @@ typedef void(WINAPI* RtlGetNtVersionNumbers_t)(DWORD* pNtMajorVersion,
 #define RGB_CYAN    RGB(0, 255, 255)
 #define RGB_MAGENTA RGB(255, 0, 255)
 
+inline constexpr UINT kGameTickDelay = static_cast<UINT>(std::round(16.7f));
+
 // Default desired ant canvas size (NOT the outer window size). wWinMain
 // adds the OS chrome and the toolbar's measured height on top of these
 // to compute the actual outer window size, so the user always gets a

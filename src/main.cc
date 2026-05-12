@@ -160,6 +160,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       InitApp(hWnd);
       break;
     case WM_TIMER:
+      TickRackets(hWnd);
       break;
     case WM_RBUTTONDOWN: {
       // Right-click pops up the Game submenu at the cursor. We grab
@@ -300,6 +301,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       FillRectWithColor(hdc, client, g_bkg_color);
       DrawCenterLine(hdc, client);
       DrawSegmentDisplays(hdc, client);
+      DrawRackets(hdc, client);
       EndPaint(hWnd, &ps);
       break;
     }
@@ -374,13 +376,14 @@ bool InitApp(HWND hWnd) {
   if (hWnd == nullptr) {
     return false;
   }
-  // ~33 fps tick rate.
-  if (SetTimer(hWnd, TIMER_GAME, 30, nullptr) == 0) {
+  // ~60 fps tick rate.
+  if (SetTimer(hWnd, TIMER_GAME, kGameTickDelay, nullptr) == 0) {
     return false;
   }
   if (!InitSegmentDisplays(hWnd)) {
     return false;
   }
+  InitRackets(hWnd);
   return true;
 }
 

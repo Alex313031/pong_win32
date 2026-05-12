@@ -57,19 +57,44 @@ constexpr int kEdgeMarginX = 48;
 constexpr int kEdgeMarginY = 14;
 constexpr int kDisplayW    = kDigitW * 3 + kDigitGap * 2;
 
+// Top edge of the playfield: kEdgeMarginY below the bottom of the score
+// displays. Acts as an upper bound for the center line, racket travel, and
+// (eventually) the ball, so the upper-center strip stays clear for the
+// state-message text and the rackets can't drift up into the score area.
+constexpr int kPlayfieldTopY = kEdgeMarginY + kDigitH + kEdgeMarginY;
+
 // Court center line. White on g_bkg_color, drawn vertically through the
-// midpoint of the client area. kCenterLineMarginY is the gap left at the
-// top and bottom of the client so the line doesn't run all the way to the
-// chrome / status bar edges; kCenterLineThickness is its width.
+// midpoint of the client area. The line's top is clamped to kPlayfieldTopY
+// so it can't intrude on the score / state-message strip; kCenterLineMarginY
+// is the gap left at the bottom of the client so the line doesn't run all
+// the way to the chrome / status bar edge. kCenterLineThickness is its width.
 constexpr COLORREF kCenterLineColor = RGB(255, 255, 255);
 constexpr int kCenterLineMarginY    = 14;
 constexpr int kCenterLineThickness  = 6;
+
+// Rackets. Two white rectangles, one anchored at each side. kRacketEdgeMarginX
+// is the gap from the window edge to the racket's outer side; kRacketStepPx
+// is how far the player's racket moves per WM_TIMER tick while an arrow key
+// is held. Tick rate is ~60fps (see kGameTickDelay / SetTimer in InitApp), so
+// step * 60 is roughly the racket's vertical px/sec.
+constexpr COLORREF kRacketColor   = RGB(255, 255, 255);
+constexpr int kRacketW            = 14;
+constexpr int kRacketH            = 90;
+constexpr int kRacketEdgeMarginX  = 20;
+constexpr int kRacketStepPx       = 6;
 
 // Live score state. File-scope so InitSegmentDisplays / UpdateSegmentDisplay
 // can mutate without exposing the variables to the rest of the program -
 // callers go through the API, the renderer goes through DrawSegmentDisplays.
 unsigned int g_player_score  = 0;
 unsigned int g_machine_score = 0;
+
+// Racket state. -1 means "not yet centered" - WM_CREATE / InitRackets fires
+// before WM_SIZE so we can't pick a y until cyClient is known. The first
+// WM_TIMER tick where it is non-zero does the centering.
+bool g_player_on_left = true;
+int g_left_racket_y   = -1;
+int g_right_racket_y  = -1;
 
 // Fills a convex polygon with a solid color. Pen and brush share the color
 // so the rasterized outline doesn't leave a 1px halo around the fill.
@@ -222,6 +247,47 @@ void DrawOneDisplay(HDC hdc, int origin_x, int origin_y, unsigned int score) {
   DrawDigit(hdc, origin_x + stride * 2, origin_y, kDigitW, kDigitH, kSegT, d_ones);
 }
 
+// Left-edge x of the racket on the given side.
+int RacketX(int client_width, bool left_side) {
+  return left_side ? kRacketEdgeMarginX
+                   : client_width - kRacketEdgeMarginX - kRacketW;
+}
+
+// Builds the rect occupied by a racket given its top-edge y.
+RECT RacketRect(int client_width, bool left_side, int y) {
+  RECT r;
+  r.left   = RacketX(client_width, left_side);
+  r.right  = r.left + kRacketW;
+  r.top    = y;
+  r.bottom = y + kRacketH;
+  return r;
+}
+
+int ClampRacketY(int y) {
+  if (y < kPlayfieldTopY) {
+    return kPlayfieldTopY;
+  }
+  if (cyClient > 0 && y > cyClient - kRacketH) {
+    return cyClient - kRacketH;
+  }
+  return y;
+}
+
+// Sets both racket y's to the vertical centre of the *playfield* (the slice
+// of the client area below kPlayfieldTopY), not the whole client - otherwise
+// the racket would sit visually high because the score strip eats the top of
+// the window. No-op when cyClient isn't known yet (the lazy-init path in
+// TickRackets retries every frame until WM_SIZE has fired).
+void CenterRackets() {
+  if (cyClient <= 0) {
+    return;
+  }
+  const int playfield_h = cyClient - kPlayfieldTopY;
+  const int centered    = kPlayfieldTopY + (playfield_h - kRacketH) / 2;
+  g_left_racket_y       = centered;
+  g_right_racket_y      = centered;
+}
+
 } // namespace
 
 bool InitSegmentDisplays(HWND hWnd) {
@@ -250,7 +316,7 @@ void UpdateSegmentDisplay(bool player_display, unsigned int score) {
     return;
   }
   // Invalidate just the affected display's rect rather than the whole
-  // client - keeps a 30 fps tick of score updates from forcing a full
+  // client - keeps a 60 fps tick of score updates from forcing a full
   // window repaint when only six digits' worth of pixels could change.
   RECT r = DisplayRect(cxClient, player_display);
   InvalidateRect(mainHwnd, &r, FALSE);
@@ -273,9 +339,94 @@ void DrawCenterLine(HDC hdc, const RECT& client) {
   RECT r;
   r.left   = midX - kCenterLineThickness / 2;
   r.right  = r.left + kCenterLineThickness;
-  r.top    = client.top + kCenterLineMarginY;
+  r.top    = client.top + kPlayfieldTopY;
   r.bottom = client.bottom - kCenterLineMarginY;
   HBRUSH hbr = CreateSolidBrush(kCenterLineColor);
   FillRect(hdc, &r, hbr);
+  DeleteObject(hbr);
+}
+
+void SetPlayerOnLeft(bool on_left) {
+  g_player_on_left = on_left;
+}
+
+void InitRackets(HWND hWnd) {
+  if (hWnd == nullptr) {
+    return;
+  }
+  g_left_racket_y  = -1;
+  g_right_racket_y = -1;
+  // Try to centre now in case WM_SIZE has already run; if not, TickRackets
+  // will do it on the first tick that sees a non-zero cyClient.
+  CenterRackets();
+  InvalidateRect(hWnd, nullptr, FALSE);
+}
+
+void TickRackets(HWND hWnd) {
+  if (hWnd == nullptr) {
+    return;
+  }
+  // Lazy-centre on the first tick that has a real cyClient. We invalidate
+  // and skip the input read so the rackets appear immediately on this frame
+  // and key handling starts the frame after - simpler than threading state
+  // for "just centred".
+  if (g_left_racket_y < 0 || g_right_racket_y < 0) {
+    if (cyClient <= 0) {
+      return;
+    }
+    CenterRackets();
+    InvalidateRect(hWnd, nullptr, FALSE);
+    return;
+  }
+  // GetAsyncKeyState reads the global keyboard state, so a key held while
+  // another app is foreground would still register here. Gate on
+  // foreground-ness to keep arrow presses in (say) the user's editor from
+  // sliding our paddle around in the background.
+  if (GetForegroundWindow() != hWnd) {
+    return;
+  }
+  const bool up   = (GetAsyncKeyState(VK_UP)   & 0x8000) ||
+                    (GetAsyncKeyState(VK_LEFT) & 0x8000);
+  const bool down = (GetAsyncKeyState(VK_DOWN)  & 0x8000) ||
+                    (GetAsyncKeyState(VK_RIGHT) & 0x8000);
+  if (!up && !down) {
+    return;
+  }
+  int* y = g_player_on_left ? &g_left_racket_y : &g_right_racket_y;
+  const int old_y = *y;
+  int new_y       = old_y;
+  if (up) {
+    new_y -= kRacketStepPx;
+  }
+  if (down) {
+    new_y += kRacketStepPx;
+  }
+  new_y = ClampRacketY(new_y);
+  if (new_y == old_y) {
+    return;
+  }
+  *y = new_y;
+  // Invalidate just the union of the racket's old and new positions in its
+  // own column. Keeps the score displays, center line and the opposite
+  // racket out of the dirty region so we don't repaint the whole window
+  // every frame the player is moving.
+  RECT r;
+  r.left   = RacketX(cxClient, g_player_on_left);
+  r.right  = r.left + kRacketW;
+  r.top    = (old_y < new_y) ? old_y : new_y;
+  r.bottom = ((old_y > new_y) ? old_y : new_y) + kRacketH;
+  InvalidateRect(hWnd, &r, FALSE);
+}
+
+void DrawRackets(HDC hdc, const RECT& client) {
+  if (g_left_racket_y < 0 || g_right_racket_y < 0) {
+    return;
+  }
+  const int width = client.right - client.left;
+  const RECT lr   = RacketRect(width, /*left_side=*/true,  g_left_racket_y);
+  const RECT rr   = RacketRect(width, /*left_side=*/false, g_right_racket_y);
+  HBRUSH hbr      = CreateSolidBrush(kRacketColor);
+  FillRect(hdc, &lr, hbr);
+  FillRect(hdc, &rr, hbr);
   DeleteObject(hbr);
 }

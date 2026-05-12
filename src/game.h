@@ -27,4 +27,26 @@ void DrawSegmentDisplays(HDC hdc, const RECT& client);
 // after the background fill. Position derives from `client`'s midpoint.
 void DrawCenterLine(HDC hdc, const RECT& client);
 
+// Initializes the two paddle "rackets" - one on each side of the client
+// area - and centers them vertically. Called from InitApp; the actual
+// centering happens lazily on the first WM_TIMER tick where cyClient is
+// known, since WM_CREATE arrives before WM_SIZE.
+void InitRackets(HWND hWnd);
+
+// Called from WM_TIMER. Polls the arrow keys via GetAsyncKeyState and
+// moves the player's racket up/down accordingly. The CPU's racket sits
+// still until game logic lands. Up/Left = up, Down/Right = down. Only
+// reads input when our window is foreground so other apps don't drive
+// the paddle.
+void TickRackets(HWND hWnd);
+
+// Paints both rackets onto hdc. Called from WM_PAINT after the background
+// fill / center line / segment displays so rackets sit on top of every
+// other element.
+void DrawRackets(HDC hdc, const RECT& client);
+
+// Sets whether the player controls the left racket (true) or the right
+// (false). Defaults to true. Re-call when wiring a menu choice later.
+void SetPlayerOnLeft(bool on_left);
+
 #endif // PONGWIN32_GAME_H_
