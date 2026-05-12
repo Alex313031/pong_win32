@@ -83,14 +83,14 @@ constexpr int kRacketH            = 90;
 constexpr int kRacketEdgeMarginX  = 20;
 constexpr int kRacketStepPx       = 6;
 
-// Ball. Square, white, kBallSize on a side. kBallStepPx is the per-axis
-// step *along the launch vector* - at angle 0 the ball moves kBallStepPx px
-// per tick horizontally; at non-zero angles dx/dy round to ints so total
-// speed dips slightly off the nominal (sqrt(2)/2 * step on each axis at 45),
-// which is fine until we move to float ball coords.
+// Ball. Square, white, kBallSize on a side. kBallSpeed is the magnitude of
+// the per-tick velocity vector; (dx, dy) decomposes it via cos/sin so the
+// ball travels at the same speed regardless of launch angle. Position is
+// float so accumulated drift from int rounding doesn't bend the trajectory
+// over many frames. At ~60fps, kBallSpeed * 60 is roughly px/sec.
 constexpr COLORREF kBallColor = RGB(255, 255, 255);
 constexpr int kBallSize       = 14;
-constexpr int kBallStepPx     = 6;
+constexpr float kBallSpeed    = 6.0f;
 
 // Launch angle bound. The ball comes off centre at a uniformly random angle
 // between 0 and this value off the horizontal axis, with independent coin
@@ -119,13 +119,14 @@ int g_right_racket_y  = -1;
 // negative. Without the explicit flag, a left-bound ball would be mistaken
 // for "needs spawning" the moment it crossed x=0 and respawn forever, while
 // a right-bound ball would never satisfy the sentinel and stay gone.
-// dx/dy are signed per-tick step deltas; dy stays 0 until bounce / paddle-
-// hit logic gives the ball a vertical component.
+// Coordinates and velocity are float so sub-pixel motion accumulates
+// correctly across frames (an int dx/dy at non-zero angles would round each
+// frame and slowly bend the trajectory toward the nearest axis).
 bool g_ball_spawned = false;
-int g_ball_x        = 0;
-int g_ball_y        = 0;
-int g_ball_dx       = 0;
-int g_ball_dy       = 0;
+float g_ball_x      = 0.0f;
+float g_ball_y      = 0.0f;
+float g_ball_dx     = 0.0f;
+float g_ball_dy     = 0.0f;
 
 // PRNG for picking the ball's initial direction. random_device-seeded so
 // successive runs don't keep launching the ball the same way.
@@ -332,16 +333,16 @@ void SpawnBall() {
   if (cxClient <= 0 || cyClient <= 0) {
     return;
   }
-  g_ball_x = cxClient / 2 - kBallSize / 2;
-  g_ball_y = kPlayfieldTopY + (cyClient - kPlayfieldTopY) / 2 - kBallSize / 2;
-  std::uniform_real_distribution<double> angle_dist(0.0, kMaxLaunchAngle);
-  const double angle = angle_dist(g_rng);
+  g_ball_x = 0.5f * cxClient - 0.5f * kBallSize;
+  g_ball_y = kPlayfieldTopY + 0.5f * (cyClient - kPlayfieldTopY) - 0.5f * kBallSize;
+  std::uniform_real_distribution<float> angle_dist(0.0f, static_cast<float>(kMaxLaunchAngle));
+  const float angle = angle_dist(g_rng);
   // Low bit of mt19937 output is a fine 50/50 coin flip; one each for the
   // horizontal and vertical sign so all four quadrants are reachable.
-  const int sx   = (g_rng() & 1u) ? 1 : -1;
-  const int sy   = (g_rng() & 1u) ? 1 : -1;
-  g_ball_dx      = sx * static_cast<int>(std::lround(kBallStepPx * std::cos(angle)));
-  g_ball_dy      = sy * static_cast<int>(std::lround(kBallStepPx * std::sin(angle)));
+  const float sx = (g_rng() & 1u) ? 1.0f : -1.0f;
+  const float sy = (g_rng() & 1u) ? 1.0f : -1.0f;
+  g_ball_dx      = sx * kBallSpeed * std::cos(angle);
+  g_ball_dy      = sy * kBallSpeed * std::sin(angle);
   g_ball_spawned = true;
 }
 
@@ -518,22 +519,69 @@ void TickBall(HWND hWnd) {
     InvalidateRect(hWnd, nullptr, FALSE);
     return;
   }
-  const int old_x = g_ball_x;
-  const int old_y = g_ball_y;
-  const int new_x = old_x + g_ball_dx;
-  const int new_y = old_y + g_ball_dy;
-  if (new_x == old_x && new_y == old_y) {
+  const float old_x = g_ball_x;
+  const float old_y = g_ball_y;
+  float nx          = old_x + g_ball_dx;
+  float ny          = old_y + g_ball_dy;
+
+  // Top / bottom bounce. Reflect the overshoot back into the playfield
+  // (nx' = 2*wall - nx) instead of clamping, so the ball preserves its
+  // sub-frame momentum and bouncing speed stays consistent.
+  if (ny < kPlayfieldTopY) {
+    ny        = 2.0f * kPlayfieldTopY - ny;
+    g_ball_dy = -g_ball_dy;
+  } else if (ny + kBallSize > cyClient) {
+    ny        = 2.0f * (cyClient - kBallSize) - ny;
+    g_ball_dy = -g_ball_dy;
+  }
+
+  // Racket bounce. AABB overlap test gated on the ball moving INTO the
+  // racket's playfield-facing edge (dx sign) - if the racket happens to
+  // overlap the ball while the ball is already moving away (after a
+  // previous bounce), we don't flip the direction back.
+  if (g_left_racket_y >= 0) {
+    const float lr_left   = kRacketEdgeMarginX;
+    const float lr_right  = lr_left + kRacketW;
+    const float lr_top    = g_left_racket_y;
+    const float lr_bottom = lr_top + kRacketH;
+    if (g_ball_dx < 0.0f &&
+        nx < lr_right && nx + kBallSize > lr_left &&
+        ny + kBallSize > lr_top && ny < lr_bottom) {
+      nx        = 2.0f * lr_right - nx;
+      g_ball_dx = -g_ball_dx;
+    }
+  }
+  if (g_right_racket_y >= 0) {
+    const float rr_right  = cxClient - kRacketEdgeMarginX;
+    const float rr_left   = rr_right - kRacketW;
+    const float rr_top    = g_right_racket_y;
+    const float rr_bottom = rr_top + kRacketH;
+    if (g_ball_dx > 0.0f &&
+        nx + kBallSize > rr_left && nx < rr_right &&
+        ny + kBallSize > rr_top && ny < rr_bottom) {
+      nx        = 2.0f * (rr_left - kBallSize) - nx;
+      g_ball_dx = -g_ball_dx;
+    }
+  }
+
+  if (nx == old_x && ny == old_y) {
     return;
   }
-  g_ball_x = new_x;
-  g_ball_y = new_y;
-  // Invalidate the bounding rect of the ball's old + new positions so a
-  // single repaint clears the trail and draws the new frame.
+  g_ball_x = nx;
+  g_ball_y = ny;
+
+  // Invalidate the bounding rect of the ball's old + new positions. floor
+  // on min, ceil on max so the dirty region covers every pixel either rect
+  // could touch even with fractional positions.
+  const float min_x = (old_x < nx) ? old_x : nx;
+  const float max_x = (old_x > nx) ? old_x : nx;
+  const float min_y = (old_y < ny) ? old_y : ny;
+  const float max_y = (old_y > ny) ? old_y : ny;
   RECT r;
-  r.left   = (old_x < new_x ? old_x : new_x);
-  r.right  = (old_x > new_x ? old_x : new_x) + kBallSize;
-  r.top    = (old_y < new_y ? old_y : new_y);
-  r.bottom = (old_y > new_y ? old_y : new_y) + kBallSize;
+  r.left   = static_cast<int>(std::floor(min_x));
+  r.top    = static_cast<int>(std::floor(min_y));
+  r.right  = static_cast<int>(std::ceil(max_x + kBallSize));
+  r.bottom = static_cast<int>(std::ceil(max_y + kBallSize));
   InvalidateRect(hWnd, &r, FALSE);
 }
 
@@ -543,8 +591,8 @@ void DrawBall(HDC hdc, const RECT& client) {
     return;
   }
   RECT r;
-  r.left   = g_ball_x;
-  r.top    = g_ball_y;
+  r.left   = static_cast<int>(std::floor(g_ball_x));
+  r.top    = static_cast<int>(std::floor(g_ball_y));
   r.right  = r.left + kBallSize;
   r.bottom = r.top + kBallSize;
   HBRUSH hbr = CreateSolidBrush(kBallColor);
