@@ -27,11 +27,12 @@ static bool s_was_minimized = false;
 // Current background color. Defaults to black;
 COLORREF g_bkg_color = RGB_BLACK;
 
-// Reserved for a future start/stop toggle (e.g. between matches). volatile
-// in case future work shifts the tick or input loop onto another thread.
-// g_paused (the per-frame pause flag) lives in game.cc since the tick
-// handlers there are its only readers.
-volatile bool g_running = true;
+// Match-level run state. false = game stopped (between matches, or on first
+// launch sitting at the "ready" screen). The tick handlers in game.cc gate
+// movement on both this and g_paused so the ball doesn't drift while a
+// kReady / kNewGame banner is up. volatile in case future work moves the
+// tick / input loop onto another thread.
+volatile bool g_running = false;
 
 bool g_debug_mode = is_debug;
 
@@ -182,6 +183,21 @@ static void ApplyMenuDefaults(HWND hWnd) {
   }
   SetPaused(IsMenuChecked(menu, IDM_PAUSE));
   SetPlayerOnLeft(IsMenuChecked(menu, IDM_PLAYER));
+}
+
+// Drives the Pause menu's CHECKED state from the actual run state. We treat
+// "ball isn't moving right now" as one bit, regardless of whether that's
+// because the match is stopped (between rounds) or actively paused inside
+// one - so the user always has a single visual indicator that says "play
+// is halted". Called from every site that flips g_running or g_paused.
+static void SyncPauseMenuCheck(HWND hWnd) {
+  HMENU menu = GetMenu(hWnd);
+  if (menu == nullptr) {
+    return;
+  }
+  const bool checked = !g_running || g_paused;
+  CheckMenuItem(menu, IDM_PAUSE,
+                MF_BYCOMMAND | (checked ? MF_CHECKED : MF_UNCHECKED));
 }
 
 // Middle-drag-to-resize state. We can't use the WM_NCLBUTTONDOWN trick
@@ -390,15 +406,35 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           }
           break;
         }
-        case IDM_PAUSE: {
-          // Toggle the menu's CHECKED state and mirror it into the engine.
-          // The menu is the source of truth for "is the game paused" - both
-          // the runtime toggle and the .rc default flow through it.
-          const bool now_paused = ToggleMenuCheck(hWnd, IDM_PAUSE);
-          SetPaused(now_paused);
-          SetMessage(now_paused ? kPausedMsg : std::wstring());
+        case IDM_NEWGAME:
+          // Stop the game, reset positions / scores, and surface the new-
+          // game banner. The ball is spawned with a random velocity but
+          // won't actually move until g_running flips true on the next F3.
+          // Pause flag also gets cleared so a previously-paused match
+          // doesn't carry over into the fresh one.
+          g_running = false;
+          SetPaused(false);
+          ResetForNewGame(hWnd);
+          SetMessage(kNewGameMsg);
+          SyncPauseMenuCheck(hWnd);
           break;
-        }
+        case IDM_PAUSE:
+          // Two roles for F3 / IDM_PAUSE depending on the run state:
+          //   * Game stopped (!g_running): act as "start" - flip g_running
+          //     on and clear the banner. g_paused is left alone since this
+          //     transition is "stopped to playing", not a pause toggle.
+          //   * Game running: standard pause toggle - flip g_paused.
+          // Either way, SyncPauseMenuCheck folds the new state back into
+          // the menu's CHECKED indicator.
+          if (!g_running) {
+            g_running = true;
+            SetMessage(std::wstring());
+          } else {
+            SetPaused(!g_paused);
+            SetMessage(g_paused ? kPausedMsg : std::wstring());
+          }
+          SyncPauseMenuCheck(hWnd);
+          break;
         case IDM_PLAYER:
           // CHECKED == player on left, unchecked == player on right. Full
           // client invalidate because both racket colours and the score
@@ -452,6 +488,11 @@ bool InitApp(HWND hWnd) {
   // explicitly; otherwise show the welcome string. Either way the user has
   // immediate visual feedback on game state without needing to act first.
   SetMessage(IsMenuChecked(GetMenu(hWnd), IDM_PAUSE) ? kPausedMsg : kReadyMsg);
+  // Game opens in the stopped state (g_running == false), so the Pause
+  // menu item should reflect that on launch even if the .rc had IDM_PAUSE
+  // unchecked. SyncPauseMenuCheck folds both g_running and g_paused into
+  // the single Pause indicator.
+  SyncPauseMenuCheck(hWnd);
   // ~60 fps tick rate.
   if (SetTimer(hWnd, TIMER_GAME, kGameTickDelay, nullptr) == 0) {
     return false;

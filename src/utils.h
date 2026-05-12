@@ -56,11 +56,7 @@ bool SaveClientBitmap(HWND hWnd, std::wstring* outSavedPath);
 // marquee call sites italic without having to spell it out at every
 // call. Caller owns the returned HFONT and must DeleteObject it when
 // done. Returns nullptr on failure.
-//
-// (Param order: size first because in C++ a defaulted parameter can't
-// precede a non-defaulted one - so the original "font first, size
-// second" wouldn't compile.)
-HFONT GetFont(int size, std::wstring font = L"Tahoma", bool italic = true);
+HFONT GetFont(int size, std::wstring font = L"Tahoma", bool italic = false);
 
 // Fills a rect with a solid color. Wraps the CreateSolidBrush + FillRect
 // + DeleteObject trio so call sites don't have to repeat all three (and

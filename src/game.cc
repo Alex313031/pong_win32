@@ -564,17 +564,29 @@ void DrawMessageArea(HDC hdc, const RECT& client) {
   if (g_message.empty()) {
     return;
   }
-  // Render the message centred inside the frame using the default UI font
-  // (Tahoma, italic) at half the digit height. SetBkMode(TRANSPARENT) so the
-  // brush we just freed isn't recreated for an opaque text background.
-  HFONT hFont    = GetFont(kDigitH / 2);
+  // Render the message centred inside the frame in MS Sans Serif italic at
+  // 1/3 the digit height. SetBkMode(TRANSPARENT) so the brush we just
+  // freed isn't recreated for an opaque text background.
+  HFONT hFont    = GetFont(kDigitH / 3, L"MS Sans Serif", false);
   HGDIOBJ oldFnt = SelectObject(hdc, hFont);
   const int oldBk = SetBkMode(hdc, TRANSPARENT);
   const COLORREF oldFg = SetTextColor(hdc, kMessageTextColor);
   // Pull one pixel off each side so glyphs don't draw on top of the frame.
   RECT text_r = {r.left + 1, r.top + 1, r.right - 1, r.bottom - 1};
-  DrawTextW(hdc, g_message.c_str(), -1, &text_r,
-            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+  // DT_VCENTER only works in combination with DT_SINGLELINE, so multi-line
+  // messages (anything with a literal \n) need manual vertical centring:
+  // measure the rendered height with DT_CALCRECT, then push the top down
+  // by half the leftover space so the block sits centred in the frame.
+  // DT_CENTER continues to centre each individual line horizontally.
+  constexpr UINT kDrawFlags = DT_CENTER | DT_NOPREFIX;
+  RECT measure_r = text_r;
+  DrawTextW(hdc, g_message.c_str(), -1, &measure_r, kDrawFlags | DT_CALCRECT);
+  const int text_h = measure_r.bottom - measure_r.top;
+  const int slot_h = text_r.bottom - text_r.top;
+  if (slot_h > text_h) {
+    text_r.top += (slot_h - text_h) / 2;
+  }
+  DrawTextW(hdc, g_message.c_str(), -1, &text_r, kDrawFlags);
   SetTextColor(hdc, oldFg);
   SetBkMode(hdc, oldBk);
   SelectObject(hdc, oldFnt);
@@ -596,6 +608,25 @@ void SetPlayerOnLeft(bool on_left) {
 
 void SetPaused(bool paused) {
   g_paused = paused;
+}
+
+void ResetForNewGame(HWND hWnd) {
+  if (hWnd == nullptr) {
+    return;
+  }
+  // Centre the paddles and re-launch the ball at centre with a fresh angle.
+  // SpawnBall installs a (dx, dy) here, but the ball won't actually move
+  // until g_running flips true - that's the whole point of stopping at the
+  // "new game" banner: positions reset and ready to go on the next F3.
+  CenterRackets();
+  SpawnBall();
+  // Zero the scoreboards. UpdateSegmentDisplay is the canonical way to
+  // change a score; it both stores and invalidates the matching display.
+  UpdateSegmentDisplay(/*player_display=*/true,  0);
+  UpdateSegmentDisplay(/*player_display=*/false, 0);
+  // Belt-and-braces full repaint - the paddles, ball, and any in-flight
+  // dirty regions all snap back to the reset state in a single frame.
+  InvalidateRect(hWnd, nullptr, FALSE);
 }
 
 void InitRackets(HWND hWnd) {
@@ -626,7 +657,7 @@ void TickRackets(HWND hWnd) {
     InvalidateRect(hWnd, nullptr, FALSE);
     return;
   }
-  if (g_paused) {
+  if (!g_running || g_paused) {
     return;
   }
   TickPlayerRacket(hWnd);
@@ -684,7 +715,7 @@ void TickBall(HWND hWnd) {
     InvalidateRect(hWnd, nullptr, FALSE);
     return;
   }
-  if (g_paused) {
+  if (!g_running || g_paused) {
     return;
   }
   const float old_x = g_ball_x;
@@ -790,13 +821,4 @@ void DrawBall(HDC hdc, const RECT& client) {
   HBRUSH hbr = CreateSolidBrush(kBallColor);
   FillRect(hdc, &r, hbr);
   DeleteObject(hbr);
-  // Knock out the four corner pixels so the silhouette reads as a slightly
-  // rounded square rather than a hard rectangle. Painting them back to
-  // g_bkg_color works because the dirty rect was just filled with that
-  // colour in WM_PAINT before us - the corner pixels were re-covered by
-  // FillRect above and we're now undoing that for those four pixels.
-  SetPixel(hdc, x,                 y,                 g_bkg_color);
-  SetPixel(hdc, x + kBallSize - 1, y,                 g_bkg_color);
-  SetPixel(hdc, x,                 y + kBallSize - 1, g_bkg_color);
-  SetPixel(hdc, x + kBallSize - 1, y + kBallSize - 1, g_bkg_color);
 }

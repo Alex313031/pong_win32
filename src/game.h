@@ -72,6 +72,12 @@ void SetPlayerOnLeft(bool on_left);
 // the game starts paused. Default comes from IDM_PAUSE's CHECKED state.
 void SetPaused(bool paused);
 
+// Resets the playfield to its "new match" state: rackets centred, ball
+// re-spawned at centre with a fresh random launch vector, scores zeroed.
+// The ball won't actually move until g_running flips true (typically via
+// the IDM_PAUSE / F3 handler in main.cc).
+void ResetForNewGame(HWND hWnd);
+
 // Initializes the ball state. Spawn (centre + random horizontal direction)
 // happens lazily on the first WM_TIMER tick where cxClient/cyClient are
 // known, for the same WM_CREATE-before-WM_SIZE reason as InitRackets.
