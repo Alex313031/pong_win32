@@ -58,11 +58,21 @@ constexpr int kEdgeMarginX = 48;
 constexpr int kEdgeMarginY = 14;
 constexpr int kDisplayW    = kDigitW * 3 + kDigitGap * 2;
 
-// Top edge of the playfield: kEdgeMarginY below the bottom of the score
-// displays. Acts as an upper bound for the center line, racket travel, and
-// (eventually) the ball, so the upper-center strip stays clear for the
-// state-message text and the rackets can't drift up into the score area.
-constexpr int kPlayfieldTopY = kEdgeMarginY + kDigitH + kEdgeMarginY;
+// kPlayfieldDividerY is the y of the 1-px horizontal divider that visually
+// separates the score / state-message strip from the playfield below it.
+// kPlayfieldTopY sits one row beneath it and is what the center line,
+// rackets, and ball all clamp / bounce against, so the divider always
+// stays untouched on top - no center-line dash or paddle ever overdraws it.
+constexpr int kPlayfieldDividerY          = kEdgeMarginY + kDigitH + kEdgeMarginY;
+constexpr COLORREF kPlayfieldDividerColor = RGB_LTGREY;
+constexpr int kPlayfieldTopY              = kPlayfieldDividerY + 1;
+
+// Message area. A 1-px frame between the two score displays, same height
+// as the digits, used later to render state-message text (READY, GAME OVER,
+// etc.). Inset from each display by kEdgeMarginX so it sits visually
+// balanced between them at the same x-padding the displays use on the
+// outside.
+constexpr COLORREF kMessageAreaColor = RGB_LTGREY;
 
 // Court center line. White dashes on g_bkg_color, drawn vertically through
 // the midpoint of the client area. The top is clamped to kPlayfieldTopY so
@@ -72,10 +82,10 @@ constexpr int kPlayfieldTopY = kEdgeMarginY + kDigitH + kEdgeMarginY;
 // dash width. kCenterLineDashCount is the *fixed* number of dashes - dash
 // and gap heights are derived from the available vertical space at draw
 // time so a resize keeps the count constant and just stretches the spacing.
-constexpr COLORREF kCenterLineColor = RGB(255, 255, 255);
-constexpr int kCenterLineMarginY    = 14;
-constexpr int kCenterLineThickness  = 6;
-constexpr int kCenterLineDashCount  = 20;
+constexpr COLORREF kCenterLineColor = RGB_LTGREY;
+constexpr int kCenterLineMarginY    = 0;
+constexpr int kCenterLineThickness  = 3;
+constexpr int kCenterLineDashCount  = 22;
 
 // Rackets. Two white rectangles, one anchored at each side. kRacketEdgeMarginX
 // is the gap from the window edge to the racket's outer side. kRacketStepPx
@@ -490,6 +500,47 @@ void DrawCenterLine(HDC hdc, const RECT& client) {
     r.bottom = top + (2 * i + 1) * total / slots;
     FillRect(hdc, &r, hbr);
   }
+  DeleteObject(hbr);
+}
+
+void DrawPlayfieldDivider(HDC hdc, const RECT& client) {
+  // X range spans the outer edges of both rackets, so when a racket is at
+  // its highest position (top edge flush against kPlayfieldTopY) the
+  // divider sits directly above its full width - the racket has something
+  // to "hit against". kRacketEdgeMarginX is the gap from the client's edge
+  // to the racket's outer side, mirrored on the right.
+  const int client_w = client.right - client.left;
+  RECT r;
+  r.left   = client.left + kRacketEdgeMarginX;
+  r.right  = client.left + client_w - kRacketEdgeMarginX;
+  r.top    = client.top + kPlayfieldDividerY;
+  r.bottom = r.top + 1;
+  if (r.right <= r.left) {
+    return;
+  }
+  HBRUSH hbr = CreateSolidBrush(kPlayfieldDividerColor);
+  FillRect(hdc, &r, hbr);
+  DeleteObject(hbr);
+}
+
+void DrawMessageArea(HDC hdc, const RECT& client) {
+  // Inner gap between each score display and the message area mirrors the
+  // gap between each display and the window edge (kEdgeMarginX), so the
+  // message area sits visually balanced. Height tracks kDigitH so the
+  // baseline lines up with the score digits at y = kEdgeMarginY.
+  const int client_w = client.right - client.left;
+  RECT r;
+  r.left   = client.left + 2 * kEdgeMarginX + kDisplayW;
+  r.right  = client.left + client_w - 2 * kEdgeMarginX - kDisplayW;
+  r.top    = client.top + kEdgeMarginY;
+  r.bottom = r.top + kDigitH;
+  if (r.right <= r.left) {
+    return;
+  }
+  // FrameRect draws a 1-px outline using the brush's colour, leaving the
+  // interior untouched - exactly what we want for an empty text box.
+  HBRUSH hbr = CreateSolidBrush(kMessageAreaColor);
+  FrameRect(hdc, &r, hbr);
   DeleteObject(hbr);
 }
 

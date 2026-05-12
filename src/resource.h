@@ -19,14 +19,22 @@
 #define IDM_ABOUT                   200
 #define IDM_EXIT                    201
 #define IDM_HELP                    202
+#define IDM_SAVEAS                  203
 
-#define IDM_NEWGAME                 203
-#define IDM_PAUSE                   204
-#define IDM_SPEED_LOW               205
-#define IDM_SPEED_MED               206
-#define IDM_SPEED_HIGH              207
-#define IDM_SOUND                   208
-#define IDM_SAVEAS                  209
+#define IDM_NEWGAME                 204
+#define IDM_PAUSE                   205
+#define IDM_SOUND                   206
+#define IDM_RESET                   207
+#define IDM_PLAYER                  208
+#define IDM_HUMAN                   209
+
+#define IDM_SPEED_LOW               210
+#define IDM_SPEED_MED               211
+#define IDM_SPEED_HIGH              212
+
+#define IDM_EASY                    213
+#define IDM_MED                     214
+#define IDM_HARD                    215
 
 // Timers
 #define TIMER_GAME                  300 // Timer ID for game logic/painting

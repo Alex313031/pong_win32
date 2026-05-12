@@ -300,6 +300,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       RECT client;
       GetClientRect(hWnd, &client);
       FillRectWithColor(hdc, client, g_bkg_color);
+      DrawPlayfieldDivider(hdc, client);
+      DrawMessageArea(hdc, client);
       DrawCenterLine(hdc, client);
       DrawSegmentDisplays(hdc, client);
       DrawRackets(hdc, client);

@@ -27,6 +27,16 @@ void DrawSegmentDisplays(HDC hdc, const RECT& client);
 // after the background fill. Position derives from `client`'s midpoint.
 void DrawCenterLine(HDC hdc, const RECT& client);
 
+// Paints the 1-px horizontal divider that marks the top of the playfield
+// (kPlayfieldTopY). Spans from the left edge of the left score display to
+// the right edge of the right one, not all the way across the client.
+void DrawPlayfieldDivider(HDC hdc, const RECT& client);
+
+// Paints the 1-px frame around the state-message area between the two
+// score displays. Height matches the displays; horizontal padding to each
+// display matches the displays' padding to the window edge.
+void DrawMessageArea(HDC hdc, const RECT& client);
+
 // Initializes the two paddle "rackets" - one on each side of the client
 // area - and centers them vertically. Called from InitApp; the actual
 // centering happens lazily on the first WM_TIMER tick where cyClient is

@@ -11,6 +11,7 @@ typedef void(WINAPI* RtlGetNtVersionNumbers_t)(DWORD* pNtMajorVersion,
 #define RGB_BLACK   RGB(0, 0, 0)
 #define RGB_WHITE   RGB(255, 255, 255)
 #define RGB_GREY    RGB(128, 128, 128)
+#define RGB_LTGREY  RGB(192, 192, 192) // Classic Win9x/2000 button-face grey
 #define RGB_RED     RGB(255, 0, 0)
 #define RGB_GREEN   RGB(0, 255, 0)
 #define RGB_BLUE    RGB(0, 0, 255)
