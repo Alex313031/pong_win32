@@ -161,6 +161,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       break;
     case WM_TIMER:
       TickRackets(hWnd);
+      TickBall(hWnd);
       break;
     case WM_RBUTTONDOWN: {
       // Right-click pops up the Game submenu at the cursor. We grab
@@ -302,6 +303,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       DrawCenterLine(hdc, client);
       DrawSegmentDisplays(hdc, client);
       DrawRackets(hdc, client);
+      DrawBall(hdc, client);
       EndPaint(hWnd, &ps);
       break;
     }
@@ -384,6 +386,7 @@ bool InitApp(HWND hWnd) {
     return false;
   }
   InitRackets(hWnd);
+  InitBall(hWnd);
   return true;
 }
 

@@ -49,4 +49,16 @@ void DrawRackets(HDC hdc, const RECT& client);
 // (false). Defaults to true. Re-call when wiring a menu choice later.
 void SetPlayerOnLeft(bool on_left);
 
+// Initializes the ball state. Spawn (centre + random horizontal direction)
+// happens lazily on the first WM_TIMER tick where cxClient/cyClient are
+// known, for the same WM_CREATE-before-WM_SIZE reason as InitRackets.
+void InitBall(HWND hWnd);
+
+// Called from WM_TIMER. Advances the ball one step in its current direction
+// and invalidates just the union of its old and new rect.
+void TickBall(HWND hWnd);
+
+// Paints the ball onto hdc. Called from WM_PAINT after the rackets.
+void DrawBall(HDC hdc, const RECT& client);
+
 #endif // PONGWIN32_GAME_H_

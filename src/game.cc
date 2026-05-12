@@ -83,6 +83,23 @@ constexpr int kRacketH            = 90;
 constexpr int kRacketEdgeMarginX  = 20;
 constexpr int kRacketStepPx       = 6;
 
+// Ball. Square, white, kBallSize on a side. kBallStepPx is the per-axis
+// step *along the launch vector* - at angle 0 the ball moves kBallStepPx px
+// per tick horizontally; at non-zero angles dx/dy round to ints so total
+// speed dips slightly off the nominal (sqrt(2)/2 * step on each axis at 45),
+// which is fine until we move to float ball coords.
+constexpr COLORREF kBallColor = RGB(255, 255, 255);
+constexpr int kBallSize       = 14;
+constexpr int kBallStepPx     = 6;
+
+// Launch angle bound. The ball comes off centre at a uniformly random angle
+// between 0 and this value off the horizontal axis, with independent coin
+// flips picking left/right and up/down. 45 keeps the motion noticeably
+// horizontal-dominant - the original Pong feel - while still giving the
+// player enough vertical surprise to make tracking it interesting.
+constexpr double kPi             = 3.14159265358979323846;
+constexpr double kMaxLaunchAngle = kPi / 4.0;
+
 // Live score state. File-scope so InitSegmentDisplays / UpdateSegmentDisplay
 // can mutate without exposing the variables to the rest of the program -
 // callers go through the API, the renderer goes through DrawSegmentDisplays.
@@ -95,6 +112,24 @@ unsigned int g_machine_score = 0;
 bool g_player_on_left = true;
 int g_left_racket_y   = -1;
 int g_right_racket_y  = -1;
+
+// Ball state. g_ball_spawned gates Draw/Tick - we can't reuse a negative
+// coordinate as a sentinel here (unlike the rackets) because the ball is
+// allowed to travel off the left edge, where g_ball_x legitimately goes
+// negative. Without the explicit flag, a left-bound ball would be mistaken
+// for "needs spawning" the moment it crossed x=0 and respawn forever, while
+// a right-bound ball would never satisfy the sentinel and stay gone.
+// dx/dy are signed per-tick step deltas; dy stays 0 until bounce / paddle-
+// hit logic gives the ball a vertical component.
+bool g_ball_spawned = false;
+int g_ball_x        = 0;
+int g_ball_y        = 0;
+int g_ball_dx       = 0;
+int g_ball_dy       = 0;
+
+// PRNG for picking the ball's initial direction. random_device-seeded so
+// successive runs don't keep launching the ball the same way.
+std::mt19937 g_rng{std::random_device{}()};
 
 // Fills a convex polygon with a solid color. Pen and brush share the color
 // so the rasterized outline doesn't leave a 1px halo around the fill.
@@ -288,6 +323,28 @@ void CenterRackets() {
   g_right_racket_y      = centered;
 }
 
+// Places the ball at the centre of the playfield and gives it a velocity at
+// a random angle within [0, kMaxLaunchAngle] off horizontal, with
+// independent coin flips for x and y sign. No-op until cxClient/cyClient
+// are valid; sets g_ball_spawned only on success so callers can use that as
+// the spawned/unspawned flag without inspecting coordinates.
+void SpawnBall() {
+  if (cxClient <= 0 || cyClient <= 0) {
+    return;
+  }
+  g_ball_x = cxClient / 2 - kBallSize / 2;
+  g_ball_y = kPlayfieldTopY + (cyClient - kPlayfieldTopY) / 2 - kBallSize / 2;
+  std::uniform_real_distribution<double> angle_dist(0.0, kMaxLaunchAngle);
+  const double angle = angle_dist(g_rng);
+  // Low bit of mt19937 output is a fine 50/50 coin flip; one each for the
+  // horizontal and vertical sign so all four quadrants are reachable.
+  const int sx   = (g_rng() & 1u) ? 1 : -1;
+  const int sy   = (g_rng() & 1u) ? 1 : -1;
+  g_ball_dx      = sx * static_cast<int>(std::lround(kBallStepPx * std::cos(angle)));
+  g_ball_dy      = sy * static_cast<int>(std::lround(kBallStepPx * std::sin(angle)));
+  g_ball_spawned = true;
+}
+
 } // namespace
 
 bool InitSegmentDisplays(HWND hWnd) {
@@ -428,5 +485,69 @@ void DrawRackets(HDC hdc, const RECT& client) {
   HBRUSH hbr      = CreateSolidBrush(kRacketColor);
   FillRect(hdc, &lr, hbr);
   FillRect(hdc, &rr, hbr);
+  DeleteObject(hbr);
+}
+
+void InitBall(HWND hWnd) {
+  if (hWnd == nullptr) {
+    return;
+  }
+  g_ball_spawned = false;
+  g_ball_x       = 0;
+  g_ball_y       = 0;
+  g_ball_dx      = 0;
+  g_ball_dy      = 0;
+  // Try to spawn now in case cxClient/cyClient are already known; otherwise
+  // TickBall will retry every frame until WM_SIZE has fired.
+  SpawnBall();
+  InvalidateRect(hWnd, nullptr, FALSE);
+}
+
+void TickBall(HWND hWnd) {
+  if (hWnd == nullptr) {
+    return;
+  }
+  // Lazy spawn on the first tick that has a real client size. Same dance as
+  // the rackets: invalidate and skip movement this frame so the ball appears
+  // at the centre before it starts moving.
+  if (!g_ball_spawned) {
+    SpawnBall();
+    if (!g_ball_spawned) {
+      return;
+    }
+    InvalidateRect(hWnd, nullptr, FALSE);
+    return;
+  }
+  const int old_x = g_ball_x;
+  const int old_y = g_ball_y;
+  const int new_x = old_x + g_ball_dx;
+  const int new_y = old_y + g_ball_dy;
+  if (new_x == old_x && new_y == old_y) {
+    return;
+  }
+  g_ball_x = new_x;
+  g_ball_y = new_y;
+  // Invalidate the bounding rect of the ball's old + new positions so a
+  // single repaint clears the trail and draws the new frame.
+  RECT r;
+  r.left   = (old_x < new_x ? old_x : new_x);
+  r.right  = (old_x > new_x ? old_x : new_x) + kBallSize;
+  r.top    = (old_y < new_y ? old_y : new_y);
+  r.bottom = (old_y > new_y ? old_y : new_y) + kBallSize;
+  InvalidateRect(hWnd, &r, FALSE);
+}
+
+void DrawBall(HDC hdc, const RECT& client) {
+  (void)client;
+  if (!g_ball_spawned) {
+    return;
+  }
+  RECT r;
+  r.left   = g_ball_x;
+  r.top    = g_ball_y;
+  r.right  = r.left + kBallSize;
+  r.bottom = r.top + kBallSize;
+  HBRUSH hbr = CreateSolidBrush(kBallColor);
+  FillRect(hdc, &r, hbr);
   DeleteObject(hbr);
 }
