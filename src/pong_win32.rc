@@ -96,7 +96,7 @@ BEGIN
     BEGIN
         MENUITEM "&Help",    IDM_HELP
         MENUITEM SEPARATOR
-        MENUITEM "&About",   IDM_ABOUT
+        MENUITEM "A&bout",   IDM_ABOUT
     END
 END
 

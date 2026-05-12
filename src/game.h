@@ -34,8 +34,14 @@ void DrawPlayfieldDivider(HDC hdc, const RECT& client);
 
 // Paints the 1-px frame around the state-message area between the two
 // score displays. Height matches the displays; horizontal padding to each
-// display matches the displays' padding to the window edge.
+// display matches the displays' padding to the window edge. Also renders
+// whatever string SetMessage last set, centered inside the frame.
 void DrawMessageArea(HDC hdc, const RECT& client);
+
+// Replaces the text shown in the message area. Pass an empty wstring to
+// leave the frame empty. Invalidates just the message area's rect so the
+// per-tick repaint cost stays bounded.
+void SetMessage(const std::wstring& msg);
 
 // Initializes the two paddle "rackets" - one on each side of the client
 // area - and centers them vertically. Called from InitApp; the actual
@@ -56,8 +62,15 @@ void TickRackets(HWND hWnd);
 void DrawRackets(HDC hdc, const RECT& client);
 
 // Sets whether the player controls the left racket (true) or the right
-// (false). Defaults to true. Re-call when wiring a menu choice later.
+// (false). Defaults are read from the IDM_PLAYER menu's CHECKED state at
+// startup (see ApplyMenuDefaults in main.cc).
 void SetPlayerOnLeft(bool on_left);
+
+// Pause toggle. When true, TickRackets and TickBall skip all movement /
+// input / AI - the window keeps repainting current state but nothing
+// advances. Lazy spawn / centre still runs so the field appears even if
+// the game starts paused. Default comes from IDM_PAUSE's CHECKED state.
+void SetPaused(bool paused);
 
 // Initializes the ball state. Spawn (centre + random horizontal direction)
 // happens lazily on the first WM_TIMER tick where cxClient/cyClient are

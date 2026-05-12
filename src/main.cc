@@ -27,6 +27,12 @@ static bool s_was_minimized = false;
 // Current background color. Defaults to black;
 COLORREF g_bkg_color = RGB_BLACK;
 
+// Reserved for a future start/stop toggle (e.g. between matches). volatile
+// in case future work shifts the tick or input loop onto another thread.
+// g_paused (the per-frame pause flag) lives in game.cc since the tick
+// handlers there are its only readers.
+volatile bool g_running = true;
+
 bool g_debug_mode = is_debug;
 
 // Store handles to main icon since commonly used
@@ -135,6 +141,47 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
     DestroyAcceleratorTable(hAccel);
   }
   return static_cast<int>(msg.wParam);
+}
+
+// Menu-state helpers. The .rc's CHECKED flags double as default-setting
+// storage - ApplyMenuDefaults reads each item's initial state at startup
+// and pushes it into the engine, so adjusting the defaults is just a
+// matter of toggling CHECKED in the .rc.
+static bool IsMenuChecked(HMENU menu, UINT id) {
+  if (menu == nullptr) {
+    return false;
+  }
+  const UINT state = GetMenuState(menu, id, MF_BYCOMMAND);
+  // GetMenuState returns 0xFFFFFFFF when the item isn't found.
+  if (state == static_cast<UINT>(-1)) {
+    return false;
+  }
+  return (state & MF_CHECKED) != 0;
+}
+
+// Flips a checkable menu item and returns the new state. Used by the
+// WM_COMMAND handlers so a single line covers "toggle + push into engine".
+static bool ToggleMenuCheck(HWND hWnd, UINT id) {
+  HMENU menu = GetMenu(hWnd);
+  if (menu == nullptr) {
+    return false;
+  }
+  const bool now_checked = !IsMenuChecked(menu, id);
+  CheckMenuItem(menu, id,
+                MF_BYCOMMAND | (now_checked ? MF_CHECKED : MF_UNCHECKED));
+  return now_checked;
+}
+
+// Reads every menu item whose CHECKED state is wired to a runtime setting
+// and applies it before the first frame. Add new ID->setter pairs here as
+// settings come online.
+static void ApplyMenuDefaults(HWND hWnd) {
+  HMENU menu = GetMenu(hWnd);
+  if (menu == nullptr) {
+    return;
+  }
+  SetPaused(IsMenuChecked(menu, IDM_PAUSE));
+  SetPlayerOnLeft(IsMenuChecked(menu, IDM_PLAYER));
 }
 
 // Middle-drag-to-resize state. We can't use the WM_NCLBUTTONDOWN trick
@@ -343,6 +390,23 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           }
           break;
         }
+        case IDM_PAUSE: {
+          // Toggle the menu's CHECKED state and mirror it into the engine.
+          // The menu is the source of truth for "is the game paused" - both
+          // the runtime toggle and the .rc default flow through it.
+          const bool now_paused = ToggleMenuCheck(hWnd, IDM_PAUSE);
+          SetPaused(now_paused);
+          SetMessage(now_paused ? kPausedMsg : std::wstring());
+          break;
+        }
+        case IDM_PLAYER:
+          // CHECKED == player on left, unchecked == player on right. Full
+          // client invalidate because both racket colours and the score
+          // displays swap sides with g_player_on_left.
+          SetPlayerOnLeft(ToggleMenuCheck(hWnd, IDM_PLAYER));
+          SetMessage(kToggleMsg);
+          InvalidateRect(hWnd, nullptr, FALSE);
+          break;
         default:
           return DefWindowProcW(hWnd, message, wParam, lParam);
       }
@@ -380,6 +444,14 @@ bool InitApp(HWND hWnd) {
   if (hWnd == nullptr) {
     return false;
   }
+  // Pull defaults from the menu's CHECKED state first - InitRackets etc.
+  // observe g_player_on_left and g_paused, so they need the final values
+  // by the time they run.
+  ApplyMenuDefaults(hWnd);
+  // Startup message. If the .rc starts the game paused we surface that
+  // explicitly; otherwise show the welcome string. Either way the user has
+  // immediate visual feedback on game state without needing to act first.
+  SetMessage(IsMenuChecked(GetMenu(hWnd), IDM_PAUSE) ? kPausedMsg : kReadyMsg);
   // ~60 fps tick rate.
   if (SetTimer(hWnd, TIMER_GAME, kGameTickDelay, nullptr) == 0) {
     return false;

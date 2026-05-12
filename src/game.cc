@@ -6,6 +6,11 @@
 #include "resource.h"
 #include "utils.h"
 
+// Pause toggle (declared in globals.h). Lives here because TickRackets /
+// TickBall are its only readers. volatile in case future work shifts the
+// tick or input loop onto another thread.
+volatile bool g_paused = false;
+
 namespace {
 
 // Classic LED look: bright red lit segment over a dim red unlit ghost so the
@@ -68,11 +73,13 @@ constexpr COLORREF kPlayfieldDividerColor = RGB_LTGREY;
 constexpr int kPlayfieldTopY              = kPlayfieldDividerY + 1;
 
 // Message area. A 1-px frame between the two score displays, same height
-// as the digits, used later to render state-message text (READY, GAME OVER,
-// etc.). Inset from each display by kEdgeMarginX so it sits visually
-// balanced between them at the same x-padding the displays use on the
-// outside.
-constexpr COLORREF kMessageAreaColor = RGB_LTGREY;
+// as the digits, used to render state-message text (READY, PAUSED, etc.).
+// Inset from each display by kEdgeMarginX so it sits visually balanced
+// between them at the same x-padding the displays use on the outside.
+// Text is the default UI font, italic, glyph height kDigitH / 2, drawn
+// centred both ways inside the frame.
+constexpr COLORREF kMessageAreaColor    = RGB_LTGREY;
+constexpr COLORREF kMessageTextColor    = RGB_LTGREY;
 
 // Court center line. White dashes on g_bkg_color, drawn vertically through
 // the midpoint of the client area. The top is clamped to kPlayfieldTopY so
@@ -128,12 +135,17 @@ constexpr double kMaxLaunchAngle = kPi / 4.0;
 unsigned int g_player_score  = 0;
 unsigned int g_machine_score = 0;
 
+// Current message-area text. Set via SetMessage; rendered by DrawMessageArea
+// alongside the frame. Empty string => frame only, no text.
+std::wstring g_message;
+
 // Racket state. -1 means "not yet centered" - WM_CREATE / InitRackets fires
 // before WM_SIZE so we can't pick a y until cyClient is known. The first
 // WM_TIMER tick where it is non-zero does the centering.
 bool g_player_on_left = false;
 int g_left_racket_y   = -1;
 int g_right_racket_y  = -1;
+
 
 // Ball state. g_ball_spawned gates Draw/Tick - we can't reuse a negative
 // coordinate as a sentinel here (unlike the rackets) because the ball is
@@ -298,6 +310,17 @@ void DrawOneDisplay(HDC hdc, int origin_x, int origin_y, unsigned int score) {
 RECT DisplayRectFor(int client_width, bool for_player) {
   const bool left_side = (g_player_on_left == for_player);
   return DisplayRect(client_width, left_side);
+}
+
+// Bounding rect of the state-message area between the two score displays.
+// Shared by DrawMessageArea (frame + text) and SetMessage (invalidation).
+RECT MessageAreaRect(int client_width) {
+  RECT r;
+  r.left   = 2 * kEdgeMarginX + kDisplayW;
+  r.right  = client_width - 2 * kEdgeMarginX - kDisplayW;
+  r.top    = kEdgeMarginY;
+  r.bottom = r.top + kDigitH;
+  return r;
 }
 
 // Left-edge x of the racket on the given side.
@@ -528,12 +551,8 @@ void DrawMessageArea(HDC hdc, const RECT& client) {
   // gap between each display and the window edge (kEdgeMarginX), so the
   // message area sits visually balanced. Height tracks kDigitH so the
   // baseline lines up with the score digits at y = kEdgeMarginY.
-  const int client_w = client.right - client.left;
-  RECT r;
-  r.left   = client.left + 2 * kEdgeMarginX + kDisplayW;
-  r.right  = client.left + client_w - 2 * kEdgeMarginX - kDisplayW;
-  r.top    = client.top + kEdgeMarginY;
-  r.bottom = r.top + kDigitH;
+  RECT r = MessageAreaRect(client.right - client.left);
+  OffsetRect(&r, client.left, client.top);
   if (r.right <= r.left) {
     return;
   }
@@ -542,10 +561,41 @@ void DrawMessageArea(HDC hdc, const RECT& client) {
   HBRUSH hbr = CreateSolidBrush(kMessageAreaColor);
   FrameRect(hdc, &r, hbr);
   DeleteObject(hbr);
+  if (g_message.empty()) {
+    return;
+  }
+  // Render the message centred inside the frame using the default UI font
+  // (Tahoma, italic) at half the digit height. SetBkMode(TRANSPARENT) so the
+  // brush we just freed isn't recreated for an opaque text background.
+  HFONT hFont    = GetFont(kDigitH / 2);
+  HGDIOBJ oldFnt = SelectObject(hdc, hFont);
+  const int oldBk = SetBkMode(hdc, TRANSPARENT);
+  const COLORREF oldFg = SetTextColor(hdc, kMessageTextColor);
+  // Pull one pixel off each side so glyphs don't draw on top of the frame.
+  RECT text_r = {r.left + 1, r.top + 1, r.right - 1, r.bottom - 1};
+  DrawTextW(hdc, g_message.c_str(), -1, &text_r,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+  SetTextColor(hdc, oldFg);
+  SetBkMode(hdc, oldBk);
+  SelectObject(hdc, oldFnt);
+  DeleteObject(hFont);
+}
+
+void SetMessage(const std::wstring& msg) {
+  g_message = msg;
+  if (mainHwnd == nullptr) {
+    return;
+  }
+  RECT r = MessageAreaRect(cxClient);
+  InvalidateRect(mainHwnd, &r, FALSE);
 }
 
 void SetPlayerOnLeft(bool on_left) {
   g_player_on_left = on_left;
+}
+
+void SetPaused(bool paused) {
+  g_paused = paused;
 }
 
 void InitRackets(HWND hWnd) {
@@ -574,6 +624,9 @@ void TickRackets(HWND hWnd) {
     }
     CenterRackets();
     InvalidateRect(hWnd, nullptr, FALSE);
+    return;
+  }
+  if (g_paused) {
     return;
   }
   TickPlayerRacket(hWnd);
@@ -629,6 +682,9 @@ void TickBall(HWND hWnd) {
       return;
     }
     InvalidateRect(hWnd, nullptr, FALSE);
+    return;
+  }
+  if (g_paused) {
     return;
   }
   const float old_x = g_ball_x;
