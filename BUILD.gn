@@ -16,6 +16,8 @@ executable("pong_win32") {
     "src/game.h",
     "src/pong_win32.rc",
     "src/resource.h",
+    "src/sound.cc",
+    "src/sound.h",
     "src/strings.h",
     "src/utils.cc",
     "src/utils.h",

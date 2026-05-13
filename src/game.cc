@@ -5,6 +5,7 @@
 #include "constants.h"
 #include "globals.h"
 #include "resource.h"
+#include "sound.h"
 #include "utils.h"
 
 // Pause toggle (declared in globals.h). Lives here because TickRackets /
@@ -33,8 +34,6 @@ std::wstring g_message;
 // WM_TIMER tick where it is non-zero does the centering.
 bool g_player_on_left = false;
 
-// Sound on/off. Default comes from IDM_SOUND's CHECKED state at startup.
-bool g_sound_on = false;
 // Racket Y coords are float so per-frame "speed * dt" deltas accumulate
 // sub-pixel motion correctly across frames; we floor() when building the
 // integer draw rect. Negative still serves as the "not yet centred"
@@ -78,10 +77,11 @@ std::mt19937 g_rng{std::random_device{}()};
 // from substituting its system "ding" if the resource can't be found.
 // No-op when sound is muted.
 //
-// Caveat: PlaySoundW only sustains one async stream per caller, so a hit
-// arriving while a previous one is still playing will interrupt it. With
-// 25 ms wavs and bounces well-spaced in normal play, this is rarely
-// audible; if it ever matters, we'd need to move to waveOutWrite.
+// Caveat: PlaySoundW only sustains one async stream per process, so a
+// second hit landing while another is still playing will cut the first.
+// At 25 ms wavs and normal bounce spacing this is rarely audible. Music
+// is on MCI (see sound.cc) so its loop is *not* contested by hits - the
+// two audio paths use separate devices.
 void PlayHit(UINT resource_id) {
   if (!g_sound_on) {
     return;
@@ -555,11 +555,25 @@ void SetPlayerOnLeft(bool on_left) {
 }
 
 void SetPaused(bool paused) {
+  if (g_paused == paused) {
+    return;
+  }
   g_paused = paused;
+  // Music pauses/resumes with the game. SyncBgm reads g_sound_on &&
+  // !g_paused to decide; the MCI device stays open across pauses so
+  // resuming is just "MCI resume" (no re-open, no restart).
+  SyncBgm();
 }
 
 void SetSoundOn(bool on) {
+  if (g_sound_on == on) {
+    return;
+  }
   g_sound_on = on;
+  // SyncBgm starts MCI on flip-up, pauses on flip-down. Hit sounds gate
+  // themselves on g_sound_on inside PlayHit so they don't need anything
+  // more here.
+  SyncBgm();
 }
 
 void ResetForNewGame(HWND hWnd) {

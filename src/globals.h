@@ -11,8 +11,9 @@ extern HINSTANCE g_hInstance; // This program instance, everything descends from
 
 extern HWND mainHwnd; // Our main window handle
 
-extern volatile bool g_running; // Controlling global game running/stop state
-extern volatile bool g_paused;  // Pause toggle - tick handlers gate movement on this
+extern volatile bool g_running;  // Controlling global game running/stop state
+extern volatile bool g_paused;   // Pause toggle - tick handlers gate movement on this
+extern volatile bool g_sound_on; // Sound preference - sound.cc owns it, SyncBgm reads it
 
 extern COLORREF g_bkg_color; // Current background color, changed via the Colors menu
 

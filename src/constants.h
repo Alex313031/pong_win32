@@ -154,8 +154,8 @@ constexpr COLORREF kMachineRacketColor      = RGB_BLUE;
 constexpr int kRacketW                      = 14;
 constexpr int kRacketH                      = 80;
 constexpr int kRacketEdgeMarginX            = 18;
-constexpr float kRacketSpeedPxPerSec        = 360.0f;
-constexpr float kMachineRacketSpeedPxPerSec = 180.0f;
+constexpr float kRacketSpeedPxPerSec        = 400.0f;
+constexpr float kMachineRacketSpeedPxPerSec = 200.0f;
 
 // ---------------------------------------------------------------------------
 // Spawn circle.
@@ -176,7 +176,7 @@ constexpr COLORREF kSpawnCircleColor = RGB_YELLOW;
 // position jitter.
 constexpr COLORREF kBallColor      = RGB(255, 255, 255);
 constexpr int kBallSize            = 14;
-constexpr float kBallSpeedPxPerSec = 360.0f;
+constexpr float kBallSpeedPxPerSec = 500.0f;
 
 // Launch angle bound. The ball comes off centre at a uniformly random angle
 // between 0 and this value off the horizontal axis, with independent coin

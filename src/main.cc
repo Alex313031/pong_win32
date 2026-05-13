@@ -8,6 +8,7 @@
 #include "game.h"
 #include "globals.h"
 #include "resource.h"
+#include "sound.h"
 #include "strings.h"
 #include "utils.h"
 
@@ -23,6 +24,14 @@ int cyClient = 0;
 // whether the just-arrived size event is "we're coming back from a
 // minimize" (restart the tick source) vs. a normal resize (no-op).
 static bool s_was_minimized = false;
+
+// True until the user has first started a game (via F3 / Space, F2, or
+// the welcome auto-start). While true, any arrow-key press from the
+// welcome screen kicks the game off without needing F3. Once the user
+// has interacted in any way that exits the welcome screen, this stays
+// false for the rest of the session - new games and pauses always
+// require F3 / Space to resume.
+static bool s_first_start = true;
 
 // Current background color. Defaults to black;
 COLORREF g_bkg_color = RGB_BLACK;
@@ -201,6 +210,40 @@ static void SyncPauseMenuCheck(HWND hWnd) {
                 MF_BYCOMMAND | (checked ? MF_CHECKED : MF_UNCHECKED));
 }
 
+// Welcome-screen convenience: while we're still on the very first
+// stopped-state (no F3 / F2 yet), an arrow key kicks the game off the
+// same way F3 would. After any state change leaves the welcome screen
+// (s_first_start gets cleared), this is a no-op forever - new games
+// and pauses always need F3 / Space to resume per the user's spec.
+// Called from WM_TIMER before the tick handlers so the same arrow press
+// that starts the game also feeds into TickPlayerRacket this frame.
+static void CheckWelcomeAutoStart(HWND hWnd) {
+  if (!s_first_start || g_running) {
+    return;
+  }
+  // Same foreground guard as TickPlayerRacket - we read keyboard state
+  // globally, so a key held in another app wouldn't be "us".
+  if (GetForegroundWindow() != hWnd) {
+    return;
+  }
+  const bool any_arrow =
+      (GetAsyncKeyState(VK_UP)    & 0x8000) ||
+      (GetAsyncKeyState(VK_DOWN)  & 0x8000) ||
+      (GetAsyncKeyState(VK_LEFT)  & 0x8000) ||
+      (GetAsyncKeyState(VK_RIGHT) & 0x8000);
+  if (!any_arrow) {
+    return;
+  }
+  // Mirror what IDM_PAUSE does on the stopped->running transition:
+  // flip g_running, clear the banner, refresh the menu indicator. We
+  // additionally retire the welcome state so subsequent stops require
+  // an explicit F3.
+  g_running     = true;
+  s_first_start = false;
+  SetMessage(std::wstring());
+  SyncPauseMenuCheck(hWnd);
+}
+
 // Mouse-drag window manipulation:
 //   * Left-click drag in the client area  -> move the window.
 //   * Right-click drag in the client area -> resize from the nearest corner.
@@ -233,6 +276,10 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       // functions so movement is timer-rate independent - the WM_TIMER
       // cadence can stall under OS load without warping the ball's speed.
       const float dt = NextFrameDelta();
+      // Welcome-screen arrow-key auto-start. Must run before TickRackets
+      // so the same key press that flips g_running also drives the
+      // player's racket on this very frame.
+      CheckWelcomeAutoStart(hWnd);
       TickRackets(hWnd, dt);
       TickBall(hWnd, dt);
       break;
@@ -450,8 +497,11 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           // game banner. The ball is spawned with a random velocity but
           // won't actually move until g_running flips true on the next F3.
           // Pause flag also gets cleared so a previously-paused match
-          // doesn't carry over into the fresh one.
-          g_running = false;
+          // doesn't carry over into the fresh one. We also retire the
+          // welcome-screen auto-start: a New Game banner needs an explicit
+          // F3 to start play, never an arrow key.
+          g_running     = false;
+          s_first_start = false;
           SetPaused(false);
           ResetForNewGame(hWnd);
           SetMessage(kNewGameMsg);
@@ -466,7 +516,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           // Either way, SyncPauseMenuCheck folds the new state back into
           // the menu's CHECKED indicator.
           if (!g_running) {
-            g_running = true;
+            g_running     = true;
+            s_first_start = false;
             SetMessage(std::wstring());
           } else {
             SetPaused(!g_paused);
@@ -514,6 +565,12 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
         s_resizing = false;
       }
       KillTimer(hWnd, TIMER_GAME);
+      // Order matters: StopPlayWav has to land on a live worker so its
+      // mci stop+close runs; ShutDownBgm then signals exit and joins.
+      // After this returns the BGM worker thread is gone and its
+      // hidden-notify window is destroyed.
+      StopPlayWav();
+      ShutDownBgm();
       PostQuitMessage(0);
       break;
     case WM_NCDESTROY:
@@ -529,6 +586,11 @@ bool InitApp(HWND hWnd) {
   if (hWnd == nullptr) {
     return false;
   }
+  // Spin up the BGM worker BEFORE ApplyMenuDefaults - the latter calls
+  // SetSoundOn (which routes through SyncBgm -> PostBgmSync), and
+  // PostBgmSync silently no-ops if the worker isn't initialised.
+  // InitBgm returning false isn't fatal; we just won't have music.
+  InitBgm();
   // Pull defaults from the menu's CHECKED state first - InitRackets etc.
   // observe g_player_on_left and g_paused, so they need the final values
   // by the time they run.

@@ -38,7 +38,7 @@ IDI_ABOUT  ICON  "res/about.ico"
 // when kUseEmbeddedBgm is true in utils.h; otherwise the .exe still
 // carries the bytes but the code path ignores them and reads the file
 // next to the exe instead.
-IDR_BGM_WAVE    WAVE  "res/music.wav"
+IDR_BGM_WAV     WAVE  "res/music.wav"
 IDR_RACKET_WAV  WAVE  "res/racket.wav"
 IDR_WALL_WAV    WAVE  "res/wall.wav"
 
