@@ -71,32 +71,23 @@ float g_ball_dy     = 0.0f;
 // successive runs don't keep launching the ball the same way.
 std::mt19937 g_rng{std::random_device{}()};
 
-// Thread proc for the async Beep. The frequency is smuggled in via the
-// LPVOID parameter (cast through uintptr_t to silence narrowing warnings)
-// so we don't have to heap-allocate a struct per hit. Duration is the
-// single global kHitDurationMs - if we ever need per-hit duration, switch
-// to packing both into a small heap object.
-DWORD WINAPI BeepThreadProc(LPVOID lpParameter) {
-  const DWORD freq =
-      static_cast<DWORD>(reinterpret_cast<uintptr_t>(lpParameter));
-  Beep(freq, kHitDurationMs);
-  return 0;
-}
-
-// Fire-and-forget hit beep. Spawns a Win32 thread that calls Beep then
-// dies; we CloseHandle immediately because we have no need to wait or
-// join. No-op when sound is muted.
-void PlayHit(DWORD freq) {
+// Fire-and-forget hit sound. PlaySoundW with SND_ASYNC hands the wav off
+// to MSACM (it gets decoded by msadp32.acm on Win2k, which is why the
+// build script encodes the wavs as MS-ADPCM) and returns immediately, so
+// the game loop never blocks on the playback. SND_NODEFAULT keeps Windows
+// from substituting its system "ding" if the resource can't be found.
+// No-op when sound is muted.
+//
+// Caveat: PlaySoundW only sustains one async stream per caller, so a hit
+// arriving while a previous one is still playing will interrupt it. With
+// 25 ms wavs and bounces well-spaced in normal play, this is rarely
+// audible; if it ever matters, we'd need to move to waveOutWrite.
+void PlayHit(UINT resource_id) {
   if (!g_sound_on) {
     return;
   }
-  HANDLE h = CreateThread(
-      /*lpThreadAttributes=*/nullptr, /*dwStackSize=*/0, BeepThreadProc,
-      reinterpret_cast<LPVOID>(static_cast<uintptr_t>(freq)),
-      /*dwCreationFlags=*/0, /*lpThreadId=*/nullptr);
-  if (h != nullptr) {
-    CloseHandle(h);
-  }
+  PlaySoundW(MAKEINTRESOURCEW(resource_id), g_hInstance,
+             SND_RESOURCE | SND_ASYNC | SND_NODEFAULT);
 }
 
 // Draws a single digit in the cell at (x, y). `digit` outside 0-9 paints all
@@ -748,11 +739,11 @@ void TickBall(HWND hWnd, float dt) {
   if (ny < kPlayfieldTopY) {
     ny        = 2.0f * kPlayfieldTopY - ny;
     g_ball_dy = -g_ball_dy;
-    PlayHit(kWallHitHz);
+    PlayHit(IDR_WALL_WAV);
   } else if (ny + kBallSize > cyClient) {
     ny        = 2.0f * (cyClient - kBallSize) - ny;
     g_ball_dy = -g_ball_dy;
-    PlayHit(kWallHitHz);
+    PlayHit(IDR_WALL_WAV);
   }
 
   // Racket bounce. AABB overlap test gated on the ball moving INTO the
@@ -769,7 +760,7 @@ void TickBall(HWND hWnd, float dt) {
         ny + kBallSize > lr_top && ny < lr_bottom) {
       nx        = 2.0f * lr_right - nx;
       g_ball_dx = -g_ball_dx;
-      PlayHit(kRacketHitHz);
+      PlayHit(IDR_RACKET_WAV);
     }
   }
   if (g_right_racket_y >= 0) {
@@ -782,7 +773,7 @@ void TickBall(HWND hWnd, float dt) {
         ny + kBallSize > rr_top && ny < rr_bottom) {
       nx        = 2.0f * (rr_left - kBallSize) - nx;
       g_ball_dx = -g_ball_dx;
-      PlayHit(kRacketHitHz);
+      PlayHit(IDR_RACKET_WAV);
     }
   }
 

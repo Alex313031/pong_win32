@@ -1,45 +1,13 @@
 #ifndef PONGWIN32_UTILS_H_
 #define PONGWIN32_UTILS_H_
 
+#include "constants.h"
 #include "framework.h"
 
 // Typedef for accessing undocumented RtlGetNtVersionNumbers in ntdll.dll
 typedef void(WINAPI* RtlGetNtVersionNumbers_t)(DWORD* pNtMajorVersion,
                                                DWORD* pNtMinorVersion,
                                                DWORD* pNtBuildNumber);
-// Color constants
-#define RGB_BLACK   RGB(0, 0, 0)
-#define RGB_WHITE   RGB(255, 255, 255)
-#define RGB_GREY    RGB(128, 128, 128)
-#define RGB_LTGREY  RGB(192, 192, 192) // Classic Win9x/2000 button-face grey
-#define RGB_RED     RGB(255, 0, 0)
-#define RGB_GREEN   RGB(0, 255, 0)
-#define RGB_BLUE    RGB(0, 0, 255)
-#define RGB_YELLOW  RGB(255, 255, 0)
-#define RGB_CYAN    RGB(0, 255, 255)
-#define RGB_MAGENTA RGB(255, 0, 255)
-
-inline constexpr UINT kGameTickDelay = static_cast<UINT>(std::round(16.7f));
-
-// Default desired ant canvas size (NOT the outer window size). wWinMain
-// adds the OS chrome and the toolbar's measured height on top of these
-// to compute the actual outer window size, so the user always gets a
-// CW_WIDTH x CW_HEIGHT game canvas at startup regardless of how tall the
-// menu bar / toolbar end up being.
-inline constexpr INT CW_WIDTH  = 1024;
-inline constexpr INT CW_HEIGHT = 800;
-
-// Min window size
-inline constexpr INT CW_MINWIDTH  = 640;
-inline constexpr INT CW_MINHEIGHT = 480;
-
-// Child window style
-inline constexpr DWORD dwCHILD = WS_CHILD | WS_VISIBLE;
-
-// Minimum common controls version for certain functions, used for fallback codepaths
-// See https://learn.microsoft.com/en-us/windows/win32/controls/common-control-versions
-inline constexpr DWORD dwComCtl32TargetVer =
-    _PACKVERSION(static_cast<DWORD>(5u), static_cast<DWORD>(82u));
 
 extern bool g_debug_mode;
 

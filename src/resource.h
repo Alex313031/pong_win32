@@ -39,6 +39,14 @@
 // Timers
 #define TIMER_GAME                  300 // Timer ID for game logic/painting
 
+// Embedded background-music WAV. Loaded as a user-defined "WAVE" resource
+// when kUseEmbeddedBgm is true (see utils.h). The RC file binds this ID
+// to res/music.wav; FindResourceW(L"WAVE") picks it up at runtime.
+#define IDR_BGM_WAV                 500
+
+#define IDR_RACKET_WAV              501 // Racket ball bounce sound
+#define IDR_WALL_WAV                502 // Wall ball bounce sound
+
 // Custom posted-message IDs (WM_APP range, guaranteed to not clash with any
 // system / common-control message). Used to defer work that mustn't run
 // inside WM_CREATE — see WM_APP_AUTOPLAY usage in main.cc.

@@ -2,7 +2,41 @@
 #define PONGWIN32_CONSTANTS_H_
 
 #include "framework.h"
-#include "utils.h"   // RGB_* color macros
+
+// Color constants
+#define RGB_BLACK   RGB(0, 0, 0)
+#define RGB_WHITE   RGB(255, 255, 255)
+#define RGB_GREY    RGB(128, 128, 128)
+#define RGB_LTGREY  RGB(192, 192, 192) // Classic Win9x/2000 button-face grey
+#define RGB_RED     RGB(255, 0, 0)
+#define RGB_GREEN   RGB(0, 255, 0)
+#define RGB_BLUE    RGB(0, 0, 255)
+#define RGB_YELLOW  RGB(255, 255, 0)
+#define RGB_CYAN    RGB(0, 255, 255)
+#define RGB_MAGENTA RGB(255, 0, 255)
+
+// WM_TIMER delay, set to approx ~60 FPS
+inline constexpr UINT kGameTickDelay = static_cast<UINT>(std::round(16.67f));
+
+// Default desired ant canvas size (NOT the outer window size). wWinMain
+// adds the OS chrome and the toolbar's measured height on top of these
+// to compute the actual outer window size, so the user always gets a
+// CW_WIDTH x CW_HEIGHT game canvas at startup regardless of how tall the
+// menu bar / toolbar end up being.
+inline constexpr INT CW_WIDTH  = 1024;
+inline constexpr INT CW_HEIGHT = 800;
+
+// Min window size
+inline constexpr INT CW_MINWIDTH  = 640;
+inline constexpr INT CW_MINHEIGHT = 480;
+
+// Child window style
+inline constexpr DWORD dwCHILD = WS_CHILD | WS_VISIBLE;
+
+// Minimum common controls version for certain functions, used for fallback codepaths
+// See https://learn.microsoft.com/en-us/windows/win32/controls/common-control-versions
+inline constexpr DWORD dwComCtl32TargetVer =
+    _PACKVERSION(static_cast<DWORD>(5u), static_cast<DWORD>(82u));
 
 // Tunable constants for the rendering, physics, and audio paths. Pulled out
 // of game.cc so anyone can adjust colours, sizes, and speeds in one place
@@ -155,14 +189,14 @@ constexpr double kMaxLaunchAngle = kPi / 4.0;
 // ---------------------------------------------------------------------------
 // Audio cues.
 //
-// Beep() blocks for its duration, so each hit is fired on a detached Win32
-// thread - the game loop never waits on the tone. Two distinct frequencies,
-// paddle higher than wall, echoing the original Atari Pong's tone split
-// (B♭5 and B♭4, exactly one octave apart). Gated on g_sound_on so the
-// IDM_SOUND menu item can mute the game without removing the calls.
-constexpr DWORD kRacketHitHz   = 932; // B♭ 5
-constexpr DWORD kWallHitHz     = 466; // B♭ 4
-constexpr DWORD kHitDurationMs = 25;
+// Hit sounds are short MS-ADPCM wavs bundled as WAVE resources
+// (IDR_RACKET_WAV / IDR_WALL_WAV - see resource.h and the assets/ build
+// scripts) and played asynchronously through PlaySoundW. The frequency
+// choice (B♭5 for paddles, B♭4 for walls - exactly one octave apart) lives
+// in assets/make_sine_wav.py since that's where the wavs are generated;
+// changing the frequencies means re-running the build script, not editing
+// this header. Gated on g_sound_on so the IDM_SOUND menu item can mute the
+// game without removing the calls.
 
 // ---------------------------------------------------------------------------
 // Frame timing.

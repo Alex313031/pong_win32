@@ -32,6 +32,16 @@ IDI_MAIN   ICON  "res/main.ico"
 IDI_SMALL  ICON  "res/small.ico"
 IDI_ABOUT  ICON  "res/about.ico"
 
+// Embedded background music as a user-defined "WAVE" resource. The type
+// keyword `WAVE` is a convention (not a system RT_ id) - FindResourceW
+// looks it up with the literal L"WAVE" string at runtime. Only loaded
+// when kUseEmbeddedBgm is true in utils.h; otherwise the .exe still
+// carries the bytes but the code path ignores them and reads the file
+// next to the exe instead.
+IDR_BGM_WAVE    WAVE  "res/music.wav"
+IDR_RACKET_WAV  WAVE  "res/racket.wav"
+IDR_WALL_WAV    WAVE  "res/wall.wav"
+
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
 LANGUAGE LANG_ENGLISH, SUBLANG_NEUTRAL
 #endif
