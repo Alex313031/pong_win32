@@ -2,6 +2,7 @@
 
 #include "game.h"
 
+#include "constants.h"
 #include "globals.h"
 #include "resource.h"
 #include "utils.h"
@@ -13,127 +14,9 @@ volatile bool g_paused = false;
 
 namespace {
 
-// Classic LED look: bright red lit segment over a dim red unlit ghost so the
-// digit silhouette is always visible (this is what Win 3.1/95 Minesweeper and
-// most pocket calculators do). Painting unlit segments instead of leaving them
-// as bare background also means we don't need a separate "8 8 8" backdrop pass.
-constexpr COLORREF kSegOn  = RGB(255, 0, 0);
-constexpr COLORREF kSegOff = RGB(50, 0, 0);
-
-// Per-digit segment bitmasks. Bit layout: 0=a 1=b 2=c 3=d 4=e 5=f 6=g, matching
-// the conventional 7-seg labeling:
-//      aaa
-//     f   b
-//      ggg
-//     e   c
-//      ddd
-constexpr unsigned char kDigitSegs[10] = {
-    0b0111111, // 0: a b c d e f
-    0b0000110, // 1: b c
-    0b1011011, // 2: a b d e g
-    0b1001111, // 3: a b c d g
-    0b1100110, // 4: b c f g
-    0b1101101, // 5: a c d f g
-    0b1111101, // 6: a c d e f g
-    0b0000111, // 7: a b c
-    0b1111111, // 8: a b c d e f g
-    0b1101111, // 9: a b c d f g
-};
-
-// Geometry for one 3-digit display. These are tuned to look right at the
-// default 1024x800 canvas; if we later want them to scale with the window,
-// this is the single place to thread cxClient through. kSegT is even so the
-// middle horizontal's half-thickness (t/2) is a whole pixel - odd thickness
-// rounds asymmetrically and the middle ends up a row thinner than top/bottom.
-constexpr int kDigitW     = 24;
-constexpr int kDigitH     = 48;
-constexpr int kSegT       = 6;
-// Perpendicular inset at each segment-to-segment join. The classic LED look
-// has a visible hairline between adjacent segments rather than them merging
-// into a single blob; pulling each segment's slanted edges inward by this
-// many pixels along their axis produces that hairline. Since every join is
-// at 45 degrees, axial offset g yields g*sqrt(2) px perpendicular - so 2
-// here is ~2.8 px visible gap.
-constexpr int kSegGap     = 2;
-constexpr int kDigitGap   = 5;
-// X/Y margins from the window edges to the display. Split so the displays
-// can be pushed further inward horizontally (clear of the paddle columns)
-// without also pushing them down away from the top edge, and vice versa.
-constexpr int kEdgeMarginX = 48;
-constexpr int kEdgeMarginY = 14;
-constexpr int kDisplayW    = kDigitW * 3 + kDigitGap * 2;
-
-// kPlayfieldDividerY is the y of the 1-px horizontal divider that visually
-// separates the score / state-message strip from the playfield below it.
-// kPlayfieldTopY sits one row beneath it and is what the center line,
-// rackets, and ball all clamp / bounce against, so the divider always
-// stays untouched on top - no center-line dash or paddle ever overdraws it.
-constexpr int kPlayfieldDividerY          = kEdgeMarginY + kDigitH + kEdgeMarginY;
-constexpr COLORREF kPlayfieldDividerColor = RGB_LTGREY;
-constexpr int kPlayfieldTopY              = kPlayfieldDividerY + 1;
-
-// Message area. A 1-px frame between the two score displays, same height
-// as the digits, used to render state-message text (READY, PAUSED, etc.).
-// Inset from each display by kEdgeMarginX so it sits visually balanced
-// between them at the same x-padding the displays use on the outside.
-// Text is the default UI font, italic, glyph height kDigitH / 2, drawn
-// centred both ways inside the frame.
-constexpr COLORREF kMessageAreaColor    = RGB_LTGREY;
-constexpr COLORREF kMessageTextColor    = RGB_LTGREY;
-
-// Court center line. White dashes on g_bkg_color, drawn vertically through
-// the midpoint of the client area. The top is clamped to kPlayfieldTopY so
-// it can't intrude on the score / state-message strip; kCenterLineMarginY
-// is the gap left at the bottom of the client so the line doesn't run all
-// the way to the chrome / status bar edge. kCenterLineThickness is the
-// dash width. kCenterLineDashCount is the *fixed* number of dashes - dash
-// and gap heights are derived from the available vertical space at draw
-// time so a resize keeps the count constant and just stretches the spacing.
-constexpr COLORREF kCenterLineColor = RGB_LTGREY;
-constexpr int kCenterLineMarginY    = 0;
-constexpr int kCenterLineThickness  = 3;
-constexpr int kCenterLineDashCount  = 22;
-
-// Rackets. Two white rectangles, one anchored at each side. kRacketEdgeMarginX
-// is the gap from the window edge to the racket's outer side. kRacketStepPx
-// is how far the player's racket moves per WM_TIMER tick while an arrow key
-// is held; kMachineRacketStepPx is the same for the CPU's tracking AI. Tick
-// rate is ~60fps (see kGameTickDelay / SetTimer in InitApp), so step * 60 is
-// roughly the racket's vertical px/sec. Splitting the two lets us nerf or
-// buff the AI without touching the player's responsiveness.
-// Player rackets are green, machine rackets are blue - colour follows the
-// role, not the physical side, so toggling g_player_on_left swaps which
-// side is green and which is blue.
-constexpr COLORREF kPlayerRacketColor  = RGB_GREEN;
-constexpr COLORREF kMachineRacketColor = RGB_BLUE;
-constexpr int kRacketW                 = 14;
-constexpr int kRacketH                 = 80;
-constexpr int kRacketEdgeMarginX       = 18;
-constexpr int kRacketStepPx            = 6;
-constexpr int kMachineRacketStepPx     = kRacketStepPx / 2;
-
-// Yellow guide circle at the ball's spawn point, 1-px outline, diameter
-// == kRacketH. Painted before the center line and rackets / ball so they
-// all overdraw it - the circle is only visible while no other element is
-// directly over it.
-constexpr COLORREF kSpawnCircleColor = RGB_YELLOW;
-
-// Ball. Square, white, kBallSize on a side. kBallSpeed is the magnitude of
-// the per-tick velocity vector; (dx, dy) decomposes it via cos/sin so the
-// ball travels at the same speed regardless of launch angle. Position is
-// float so accumulated drift from int rounding doesn't bend the trajectory
-// over many frames. At ~60fps, kBallSpeed * 60 is roughly px/sec.
-constexpr COLORREF kBallColor = RGB(255, 255, 255);
-constexpr int kBallSize       = 14;
-constexpr float kBallSpeed    = 6.0f;
-
-// Launch angle bound. The ball comes off centre at a uniformly random angle
-// between 0 and this value off the horizontal axis, with independent coin
-// flips picking left/right and up/down. 45 keeps the motion noticeably
-// horizontal-dominant - the original Pong feel - while still giving the
-// player enough vertical surprise to make tracking it interesting.
-constexpr double kPi             = 3.14159265358979323846;
-constexpr double kMaxLaunchAngle = kPi / 4.0;
+// All tuning constants (colours, sizes, speeds, audio frequencies, the
+// per-digit segment masks) live in constants.h so they can be tweaked in
+// one place. This file owns the state and logic.
 
 // Live score state. File-scope so InitSegmentDisplays / UpdateSegmentDisplay
 // can mutate without exposing the variables to the rest of the program -
@@ -149,8 +32,24 @@ std::wstring g_message;
 // before WM_SIZE so we can't pick a y until cyClient is known. The first
 // WM_TIMER tick where it is non-zero does the centering.
 bool g_player_on_left = false;
-int g_left_racket_y   = -1;
-int g_right_racket_y  = -1;
+
+// Sound on/off. Default comes from IDM_SOUND's CHECKED state at startup.
+bool g_sound_on = false;
+// Racket Y coords are float so per-frame "speed * dt" deltas accumulate
+// sub-pixel motion correctly across frames; we floor() when building the
+// integer draw rect. Negative still serves as the "not yet centred"
+// sentinel since clamped values never go that low.
+float g_left_racket_y  = -1.0f;
+float g_right_racket_y = -1.0f;
+
+// Wall-clock delta tracking. QueryPerformanceCounter gives sub-microsecond
+// resolution and is monotonic, so dt comes from real elapsed time rather
+// than the (jittery) WM_TIMER cadence. The per-tick dt is clamped to
+// kMaxDeltaSeconds (in constants.h) to keep a stall from teleporting the
+// ball.
+LARGE_INTEGER g_qpc_freq = {};
+LARGE_INTEGER g_qpc_last = {};
+bool g_qpc_initialized   = false;
 
 
 // Ball state. g_ball_spawned gates Draw/Tick - we can't reuse a negative
@@ -172,6 +71,34 @@ float g_ball_dy     = 0.0f;
 // successive runs don't keep launching the ball the same way.
 std::mt19937 g_rng{std::random_device{}()};
 
+// Thread proc for the async Beep. The frequency is smuggled in via the
+// LPVOID parameter (cast through uintptr_t to silence narrowing warnings)
+// so we don't have to heap-allocate a struct per hit. Duration is the
+// single global kHitDurationMs - if we ever need per-hit duration, switch
+// to packing both into a small heap object.
+DWORD WINAPI BeepThreadProc(LPVOID lpParameter) {
+  const DWORD freq =
+      static_cast<DWORD>(reinterpret_cast<uintptr_t>(lpParameter));
+  Beep(freq, kHitDurationMs);
+  return 0;
+}
+
+// Fire-and-forget hit beep. Spawns a Win32 thread that calls Beep then
+// dies; we CloseHandle immediately because we have no need to wait or
+// join. No-op when sound is muted.
+void PlayHit(DWORD freq) {
+  if (!g_sound_on) {
+    return;
+  }
+  HANDLE h = CreateThread(
+      /*lpThreadAttributes=*/nullptr, /*dwStackSize=*/0, BeepThreadProc,
+      reinterpret_cast<LPVOID>(static_cast<uintptr_t>(freq)),
+      /*dwCreationFlags=*/0, /*lpThreadId=*/nullptr);
+  if (h != nullptr) {
+    CloseHandle(h);
+  }
+}
+
 // Draws a single digit in the cell at (x, y). `digit` outside 0-9 paints all
 // segments off (useful if we ever want to show blanks).
 //
@@ -187,93 +114,96 @@ std::mt19937 g_rng{std::random_device{}()};
 // thin background-coloured hairline remains where adjacent segments would
 // otherwise share an edge - that's the "off LEDs are separate elements" look
 // of a real display.
-void DrawDigit(HDC hdc, int x, int y, int w, int h, int t, int digit) {
+void DrawDigit(HDC hdc, int cell_x, int cell_y, int cell_w, int cell_h,
+               int thickness, int digit) {
   const unsigned char mask = (digit >= 0 && digit <= 9) ? kDigitSegs[digit] : 0;
-  const int midY           = y + h / 2;
-  const int halft          = t / 2;
-  const int g              = kSegGap;
-  auto col                 = [&](int bit) { return (mask & (1u << bit)) ? kSegOn : kSegOff; };
+  const int mid_y          = cell_y + cell_h / 2;
+  const int half_thick     = thickness / 2;
+  const int gap            = kSegGap;
+  auto seg_color           = [&](int bit) {
+    return (mask & (1u << bit)) ? kSegOn : kSegOff;
+  };
 
   // 'a' - top horizontal trapezoid. Flat top sits on the digit's top edge;
-  // the bottom edge is shorter by t on each side, with 45 lips angling
-  // down-into-the-digit so 'f' and 'b' can fit alongside.
+  // the bottom edge is shorter by `thickness` on each side, with 45 lips
+  // angling down-into-the-digit so 'f' and 'b' can fit alongside.
   {
     const POINT pts[4] = {
-        {x + g,         y    },
-        {x + w - g,     y    },
-        {x + w - t - g, y + t},
-        {x + t + g,     y + t},
+        {cell_x + gap,                     cell_y            },
+        {cell_x + cell_w - gap,            cell_y            },
+        {cell_x + cell_w - thickness - gap, cell_y + thickness},
+        {cell_x + thickness + gap,         cell_y + thickness},
     };
-    FillPolygon(hdc, pts, 4, col(0));
+    FillPolygon(hdc, pts, 4, seg_color(0));
   }
   // 'b' - upper-right vertical trapezoid. Flat side on the digit's right
   // edge; lips angle into the digit at top (meeting 'a') and bottom
-  // (meeting 'g'). Bottom lip ends at midY - t so the 45 slant lines up
-  // with 'g's top-right tip.
+  // (meeting 'g'). Bottom lip ends at mid_y - thickness so the 45 slant
+  // lines up with 'g's top-right tip.
   {
     const POINT pts[4] = {
-        {x + w,     y + g       },
-        {x + w - t, y + t + g   },
-        {x + w - t, midY - t - g},
-        {x + w,     midY - g    },
+        {cell_x + cell_w,             cell_y + gap               },
+        {cell_x + cell_w - thickness, cell_y + thickness + gap   },
+        {cell_x + cell_w - thickness, mid_y - thickness - gap    },
+        {cell_x + cell_w,             mid_y - gap                },
     };
-    FillPolygon(hdc, pts, 4, col(1));
+    FillPolygon(hdc, pts, 4, seg_color(1));
   }
   // 'c' - lower-right vertical trapezoid. Mirror of 'b' below the middle.
   {
     const POINT pts[4] = {
-        {x + w,     midY + g    },
-        {x + w - t, midY + t + g},
-        {x + w - t, y + h - t - g},
-        {x + w,     y + h - g   },
+        {cell_x + cell_w,             mid_y + gap                       },
+        {cell_x + cell_w - thickness, mid_y + thickness + gap           },
+        {cell_x + cell_w - thickness, cell_y + cell_h - thickness - gap},
+        {cell_x + cell_w,             cell_y + cell_h - gap            },
     };
-    FillPolygon(hdc, pts, 4, col(2));
+    FillPolygon(hdc, pts, 4, seg_color(2));
   }
   // 'd' - bottom horizontal trapezoid. Mirror of 'a' along the digit's
   // bottom edge.
   {
     const POINT pts[4] = {
-        {x + t + g,     y + h - t},
-        {x + w - t - g, y + h - t},
-        {x + w - g,     y + h    },
-        {x + g,         y + h    },
+        {cell_x + thickness + gap,         cell_y + cell_h - thickness},
+        {cell_x + cell_w - thickness - gap, cell_y + cell_h - thickness},
+        {cell_x + cell_w - gap,            cell_y + cell_h            },
+        {cell_x + gap,                     cell_y + cell_h            },
     };
-    FillPolygon(hdc, pts, 4, col(3));
+    FillPolygon(hdc, pts, 4, seg_color(3));
   }
   // 'e' - lower-left vertical trapezoid. Mirror of 'c'.
   {
     const POINT pts[4] = {
-        {x,     midY + g    },
-        {x + t, midY + t + g},
-        {x + t, y + h - t - g},
-        {x,     y + h - g   },
+        {cell_x,             mid_y + gap                       },
+        {cell_x + thickness, mid_y + thickness + gap           },
+        {cell_x + thickness, cell_y + cell_h - thickness - gap},
+        {cell_x,             cell_y + cell_h - gap            },
     };
-    FillPolygon(hdc, pts, 4, col(4));
+    FillPolygon(hdc, pts, 4, seg_color(4));
   }
   // 'f' - upper-left vertical trapezoid. Mirror of 'b'.
   {
     const POINT pts[4] = {
-        {x,     y + g       },
-        {x + t, y + t + g   },
-        {x + t, midY - t - g},
-        {x,     midY - g    },
+        {cell_x,             cell_y + gap            },
+        {cell_x + thickness, cell_y + thickness + gap},
+        {cell_x + thickness, mid_y - thickness - gap },
+        {cell_x,             mid_y - gap             },
     };
-    FillPolygon(hdc, pts, 4, col(5));
+    FillPolygon(hdc, pts, 4, seg_color(5));
   }
-  // 'g' - middle horizontal hexagon. 45 tips: shoulders are halft from each
-  // tip so the slant has slope 1. Body (between shoulders) is shorter than
-  // 'a'/'d' by t, which gives the middle the visibly narrower silhouette
-  // of a classic 7-seg.
+  // 'g' - middle horizontal hexagon. 45 tips: shoulders are half_thick from
+  // each tip so the slant has slope 1. Body (between shoulders) is shorter
+  // than 'a'/'d' by `thickness`, which gives the middle the visibly
+  // narrower silhouette of a classic 7-seg.
   {
     const POINT pts[6] = {
-        {x + g,             midY        },
-        {x + halft + g,     midY - halft},
-        {x + w - halft - g, midY - halft},
-        {x + w - g,         midY        },
-        {x + w - halft - g, midY + halft},
-        {x + halft + g,     midY + halft},
+        {cell_x + gap,                      mid_y             },
+        {cell_x + half_thick + gap,         mid_y - half_thick},
+        {cell_x + cell_w - half_thick - gap, mid_y - half_thick},
+        {cell_x + cell_w - gap,             mid_y             },
+        {cell_x + cell_w - half_thick - gap, mid_y + half_thick},
+        {cell_x + half_thick + gap,         mid_y + half_thick},
     };
-    FillPolygon(hdc, pts, 6, col(6));
+    FillPolygon(hdc, pts, 6, seg_color(6));
   }
 }
 
@@ -281,17 +211,17 @@ void DrawDigit(HDC hdc, int x, int y, int w, int h, int t, int digit) {
 // vs top-right slot. Centralized so Update's invalidation and Draw's
 // positioning can't drift apart.
 RECT DisplayRect(int client_width, bool left_side) {
-  RECT r;
-  r.top    = kEdgeMarginY;
-  r.bottom = kEdgeMarginY + kDigitH;
+  RECT rect;
+  rect.top    = kEdgeMarginY;
+  rect.bottom = kEdgeMarginY + kDigitH;
   if (left_side) {
-    r.left  = kEdgeMarginX;
-    r.right = kEdgeMarginX + kDisplayW;
+    rect.left  = kEdgeMarginX;
+    rect.right = kEdgeMarginX + kDisplayW;
   } else {
-    r.right = client_width - kEdgeMarginX;
-    r.left  = r.right - kDisplayW;
+    rect.right = client_width - kEdgeMarginX;
+    rect.left  = rect.right - kDisplayW;
   }
-  return r;
+  return rect;
 }
 
 void DrawOneDisplay(HDC hdc, int origin_x, int origin_y, unsigned int score) {
@@ -321,12 +251,12 @@ RECT DisplayRectFor(int client_width, bool for_player) {
 // Bounding rect of the state-message area between the two score displays.
 // Shared by DrawMessageArea (frame + text) and SetMessage (invalidation).
 RECT MessageAreaRect(int client_width) {
-  RECT r;
-  r.left   = 2 * kEdgeMarginX + kDisplayW;
-  r.right  = client_width - 2 * kEdgeMarginX - kDisplayW;
-  r.top    = kEdgeMarginY;
-  r.bottom = r.top + kDigitH;
-  return r;
+  RECT rect;
+  rect.left   = 2 * kEdgeMarginX + kDisplayW;
+  rect.right  = client_width - 2 * kEdgeMarginX - kDisplayW;
+  rect.top    = kEdgeMarginY;
+  rect.bottom = rect.top + kDigitH;
+  return rect;
 }
 
 // Left-edge x of the racket on the given side.
@@ -335,49 +265,60 @@ int RacketX(int client_width, bool left_side) {
                    : client_width - kRacketEdgeMarginX - kRacketW;
 }
 
-// Builds the rect occupied by a racket given its top-edge y.
-RECT RacketRect(int client_width, bool left_side, int y) {
-  RECT r;
-  r.left   = RacketX(client_width, left_side);
-  r.right  = r.left + kRacketW;
-  r.top    = y;
-  r.bottom = y + kRacketH;
-  return r;
+// Builds the rect occupied by a racket given its top-edge y. top_y is
+// float (the live racket state); we floor() to land on a pixel boundary.
+RECT RacketRect(int client_width, bool left_side, float top_y) {
+  const int top_pixel = static_cast<int>(std::floor(top_y));
+  RECT rect;
+  rect.left   = RacketX(client_width, left_side);
+  rect.right  = rect.left + kRacketW;
+  rect.top    = top_pixel;
+  rect.bottom = top_pixel + kRacketH;
+  return rect;
 }
 
-int ClampRacketY(int y) {
-  if (y < kPlayfieldTopY) {
-    return kPlayfieldTopY;
+float ClampRacketY(float proposed_y) {
+  if (proposed_y < static_cast<float>(kPlayfieldTopY)) {
+    return static_cast<float>(kPlayfieldTopY);
   }
-  if (cyClient > 0 && y > cyClient - kRacketH) {
-    return cyClient - kRacketH;
+  if (cyClient > 0 && proposed_y > static_cast<float>(cyClient - kRacketH)) {
+    return static_cast<float>(cyClient - kRacketH);
   }
-  return y;
+  return proposed_y;
 }
 
 // Applies a target y to one racket: clamps to the playfield, updates the
 // state, and invalidates just the union of the old and new positions in
 // that racket's column (so neither score displays, the centre line, nor
-// the other racket end up in the dirty region).
-void MoveRacket(HWND hWnd, int* racket_y, bool is_left, int target_y) {
-  const int old_y = *racket_y;
-  const int new_y = ClampRacketY(target_y);
+// the other racket end up in the dirty region). Skips the invalidate if
+// the integer pixel row didn't change - sub-pixel drift between frames
+// is invisible and not worth a repaint.
+void MoveRacket(HWND hWnd, float* racket_y, bool is_left, float target_y) {
+  const float old_y = *racket_y;
+  const float new_y = ClampRacketY(target_y);
   if (new_y == old_y) {
     return;
   }
   *racket_y = new_y;
-  RECT r;
-  r.left   = RacketX(cxClient, is_left);
-  r.right  = r.left + kRacketW;
-  r.top    = (old_y < new_y) ? old_y : new_y;
-  r.bottom = ((old_y > new_y) ? old_y : new_y) + kRacketH;
-  InvalidateRect(hWnd, &r, FALSE);
+  const int old_top = static_cast<int>(std::floor(old_y));
+  const int new_top = static_cast<int>(std::floor(new_y));
+  if (old_top == new_top) {
+    return;
+  }
+  RECT rect;
+  rect.left   = RacketX(cxClient, is_left);
+  rect.right  = rect.left + kRacketW;
+  rect.top    = (old_top < new_top) ? old_top : new_top;
+  rect.bottom = ((old_top > new_top) ? old_top : new_top) + kRacketH;
+  InvalidateRect(hWnd, &rect, FALSE);
 }
 
 // Reads arrow-key state and moves the player's racket. Gated on our window
 // being foreground so a key held while another app is active doesn't drive
-// our paddle.
-void TickPlayerRacket(HWND hWnd) {
+// our paddle. `dt` is real seconds since the previous tick - movement scales
+// by it so the racket covers the same pixels-per-second regardless of how
+// often this is called.
+void TickPlayerRacket(HWND hWnd, float dt) {
   if (GetForegroundWindow() != hWnd) {
     return;
   }
@@ -388,37 +329,39 @@ void TickPlayerRacket(HWND hWnd) {
   if (!up && !down) {
     return;
   }
-  int* y     = g_player_on_left ? &g_left_racket_y : &g_right_racket_y;
-  int target = *y;
+  float* racket_y  = g_player_on_left ? &g_left_racket_y : &g_right_racket_y;
+  const float step = kRacketSpeedPxPerSec * dt;
+  float target     = *racket_y;
   if (up) {
-    target -= kRacketStepPx;
+    target -= step;
   }
   if (down) {
-    target += kRacketStepPx;
+    target += step;
   }
-  MoveRacket(hWnd, y, g_player_on_left, target);
+  MoveRacket(hWnd, racket_y, g_player_on_left, target);
 }
 
-// CPU racket AI: track the ball's centre y, capped at kMachineRacketStepPx
-// per tick. A small dead-zone of half a step prevents 1-pixel back-and-forth
+// CPU racket AI: track the ball's centre y at kMachineRacketSpeedPxPerSec.
+// A small dead-zone (half a frame's movement) prevents back-and-forth
 // jitter when the racket is already on top of the ball. Tracks regardless
 // of which way the ball is moving - same as the original Pong CPU; if we
 // ever want to make it more humanly imperfect, this is where to do it.
-void TickMachineRacket(HWND hWnd) {
+void TickMachineRacket(HWND hWnd, float dt) {
   if (!g_ball_spawned) {
     return;
   }
   const bool machine_on_left = !g_player_on_left;
-  int* y                     = machine_on_left ? &g_left_racket_y
-                                               : &g_right_racket_y;
-  const float ball_cy        = g_ball_y + 0.5f * kBallSize;
-  const float racket_cy      = *y + 0.5f * kRacketH;
-  const float diff           = ball_cy - racket_cy;
-  const float dead_zone      = 0.5f * kMachineRacketStepPx;
+  float* racket_y       = machine_on_left ? &g_left_racket_y
+                                          : &g_right_racket_y;
+  const float ball_cy   = g_ball_y + 0.5f * kBallSize;
+  const float racket_cy = *racket_y + 0.5f * kRacketH;
+  const float diff      = ball_cy - racket_cy;
+  const float step      = kMachineRacketSpeedPxPerSec * dt;
+  const float dead_zone = 0.5f * step;
   if (diff > dead_zone) {
-    MoveRacket(hWnd, y, machine_on_left, *y + kMachineRacketStepPx);
+    MoveRacket(hWnd, racket_y, machine_on_left, *racket_y + step);
   } else if (diff < -dead_zone) {
-    MoveRacket(hWnd, y, machine_on_left, *y - kMachineRacketStepPx);
+    MoveRacket(hWnd, racket_y, machine_on_left, *racket_y - step);
   }
 }
 
@@ -439,8 +382,8 @@ void SpawnBall() {
   // horizontal and vertical sign so all four quadrants are reachable.
   const float sx = (g_rng() & 1u) ? 1.0f : -1.0f;
   const float sy = (g_rng() & 1u) ? 1.0f : -1.0f;
-  g_ball_dx      = sx * kBallSpeed * std::cos(angle);
-  g_ball_dy      = sy * kBallSpeed * std::sin(angle);
+  g_ball_dx      = sx * kBallSpeedPxPerSec * std::cos(angle);
+  g_ball_dy      = sy * kBallSpeedPxPerSec * std::sin(angle);
   g_ball_spawned = true;
 }
 
@@ -474,16 +417,16 @@ void UpdateSegmentDisplay(bool player_display, unsigned int score) {
   // Invalidate just the affected display's rect rather than the whole
   // client - keeps a 60 fps tick of score updates from forcing a full
   // window repaint when only six digits' worth of pixels could change.
-  RECT r = DisplayRectFor(cxClient, player_display);
-  InvalidateRect(mainHwnd, &r, FALSE);
+  RECT rect = DisplayRectFor(cxClient, player_display);
+  InvalidateRect(mainHwnd, &rect, FALSE);
 }
 
 void DrawSegmentDisplays(HDC hdc, const RECT& client) {
   const int width      = client.right - client.left;
-  const RECT player_r  = DisplayRectFor(width, /*for_player=*/true);
-  const RECT machine_r = DisplayRectFor(width, /*for_player=*/false);
-  DrawOneDisplay(hdc, player_r.left,  player_r.top,  g_player_score);
-  DrawOneDisplay(hdc, machine_r.left, machine_r.top, g_machine_score);
+  const RECT player_rect  = DisplayRectFor(width, /*for_player=*/true);
+  const RECT machine_rect = DisplayRectFor(width, /*for_player=*/false);
+  DrawOneDisplay(hdc, player_rect.left,  player_rect.top,  g_player_score);
+  DrawOneDisplay(hdc, machine_rect.left, machine_rect.top, g_machine_score);
 }
 
 void DrawCenterLine(HDC hdc, const RECT& client) {
@@ -506,13 +449,13 @@ void DrawCenterLine(HDC hdc, const RECT& client) {
   // dumping them at one end.
   const int slots = 2 * kCenterLineDashCount - 1;
   HBRUSH hbr      = CreateSolidBrush(kCenterLineColor);
-  for (int i = 0; i < kCenterLineDashCount; ++i) {
-    RECT r;
-    r.left   = x_left;
-    r.right  = x_left + kCenterLineThickness;
-    r.top    = top + (2 * i) * total / slots;
-    r.bottom = top + (2 * i + 1) * total / slots;
-    FillRect(hdc, &r, hbr);
+  for (int dash = 0; dash < kCenterLineDashCount; ++dash) {
+    RECT rect;
+    rect.left   = x_left;
+    rect.right  = x_left + kCenterLineThickness;
+    rect.top    = top + (2 * dash) * total / slots;
+    rect.bottom = top + (2 * dash + 1) * total / slots;
+    FillRect(hdc, &rect, hbr);
   }
   DeleteObject(hbr);
 }
@@ -524,16 +467,16 @@ void DrawPlayfieldDivider(HDC hdc, const RECT& client) {
   // to "hit against". kRacketEdgeMarginX is the gap from the client's edge
   // to the racket's outer side, mirrored on the right.
   const int client_w = client.right - client.left;
-  RECT r;
-  r.left   = client.left + kRacketEdgeMarginX;
-  r.right  = client.left + client_w - kRacketEdgeMarginX;
-  r.top    = client.top + kPlayfieldDividerY;
-  r.bottom = r.top + 1;
-  if (r.right <= r.left) {
+  RECT rect;
+  rect.left   = client.left + kRacketEdgeMarginX;
+  rect.right  = client.left + client_w - kRacketEdgeMarginX;
+  rect.top    = client.top + kPlayfieldDividerY;
+  rect.bottom = rect.top + 1;
+  if (rect.right <= rect.left) {
     return;
   }
   HBRUSH hbr = CreateSolidBrush(kPlayfieldDividerColor);
-  FillRect(hdc, &r, hbr);
+  FillRect(hdc, &rect, hbr);
   DeleteObject(hbr);
 }
 
@@ -565,15 +508,15 @@ void DrawMessageArea(HDC hdc, const RECT& client) {
   // gap between each display and the window edge (kEdgeMarginX), so the
   // message area sits visually balanced. Height tracks kDigitH so the
   // baseline lines up with the score digits at y = kEdgeMarginY.
-  RECT r = MessageAreaRect(client.right - client.left);
-  OffsetRect(&r, client.left, client.top);
-  if (r.right <= r.left) {
+  RECT rect = MessageAreaRect(client.right - client.left);
+  OffsetRect(&rect, client.left, client.top);
+  if (rect.right <= rect.left) {
     return;
   }
   // FrameRect draws a 1-px outline using the brush's colour, leaving the
   // interior untouched - exactly what we want for an empty text box.
   HBRUSH hbr = CreateSolidBrush(kMessageAreaColor);
-  FrameRect(hdc, &r, hbr);
+  FrameRect(hdc, &rect, hbr);
   DeleteObject(hbr);
   if (g_message.empty()) {
     return;
@@ -586,21 +529,21 @@ void DrawMessageArea(HDC hdc, const RECT& client) {
   const int oldBk = SetBkMode(hdc, TRANSPARENT);
   const COLORREF oldFg = SetTextColor(hdc, kMessageTextColor);
   // Pull one pixel off each side so glyphs don't draw on top of the frame.
-  RECT text_r = {r.left + 1, r.top + 1, r.right - 1, r.bottom - 1};
+  RECT text_rect = {rect.left + 1, rect.top + 1, rect.right - 1, rect.bottom - 1};
   // DT_VCENTER only works in combination with DT_SINGLELINE, so multi-line
   // messages (anything with a literal \n) need manual vertical centring:
   // measure the rendered height with DT_CALCRECT, then push the top down
   // by half the leftover space so the block sits centred in the frame.
   // DT_CENTER continues to centre each individual line horizontally.
   constexpr UINT kDrawFlags = DT_CENTER | DT_NOPREFIX;
-  RECT measure_r = text_r;
-  DrawTextW(hdc, g_message.c_str(), -1, &measure_r, kDrawFlags | DT_CALCRECT);
-  const int text_h = measure_r.bottom - measure_r.top;
-  const int slot_h = text_r.bottom - text_r.top;
+  RECT measure_rect = text_rect;
+  DrawTextW(hdc, g_message.c_str(), -1, &measure_rect, kDrawFlags | DT_CALCRECT);
+  const int text_h = measure_rect.bottom - measure_rect.top;
+  const int slot_h = text_rect.bottom - text_rect.top;
   if (slot_h > text_h) {
-    text_r.top += (slot_h - text_h) / 2;
+    text_rect.top += (slot_h - text_h) / 2;
   }
-  DrawTextW(hdc, g_message.c_str(), -1, &text_r, kDrawFlags);
+  DrawTextW(hdc, g_message.c_str(), -1, &text_rect, kDrawFlags);
   SetTextColor(hdc, oldFg);
   SetBkMode(hdc, oldBk);
   SelectObject(hdc, oldFnt);
@@ -612,8 +555,8 @@ void SetMessage(const std::wstring& msg) {
   if (mainHwnd == nullptr) {
     return;
   }
-  RECT r = MessageAreaRect(cxClient);
-  InvalidateRect(mainHwnd, &r, FALSE);
+  RECT rect = MessageAreaRect(cxClient);
+  InvalidateRect(mainHwnd, &rect, FALSE);
 }
 
 void SetPlayerOnLeft(bool on_left) {
@@ -622,6 +565,10 @@ void SetPlayerOnLeft(bool on_left) {
 
 void SetPaused(bool paused) {
   g_paused = paused;
+}
+
+void SetSoundOn(bool on) {
+  g_sound_on = on;
 }
 
 void ResetForNewGame(HWND hWnd) {
@@ -647,15 +594,15 @@ void InitRackets(HWND hWnd) {
   if (hWnd == nullptr) {
     return;
   }
-  g_left_racket_y  = -1;
-  g_right_racket_y = -1;
+  g_left_racket_y  = -1.0f;
+  g_right_racket_y = -1.0f;
   // Try to centre now in case WM_SIZE has already run; if not, TickRackets
   // will do it on the first tick that sees a non-zero cyClient.
   CenterRackets();
   InvalidateRect(hWnd, nullptr, FALSE);
 }
 
-void TickRackets(HWND hWnd) {
+void TickRackets(HWND hWnd, float dt) {
   if (hWnd == nullptr) {
     return;
   }
@@ -663,7 +610,7 @@ void TickRackets(HWND hWnd) {
   // and skip the input/AI step so the rackets appear immediately on this
   // frame and start tracking next frame - simpler than threading state for
   // "just centred".
-  if (g_left_racket_y < 0 || g_right_racket_y < 0) {
+  if (g_left_racket_y < 0.0f || g_right_racket_y < 0.0f) {
     if (cyClient <= 0) {
       return;
     }
@@ -674,8 +621,8 @@ void TickRackets(HWND hWnd) {
   if (!g_running || g_paused) {
     return;
   }
-  TickPlayerRacket(hWnd);
-  TickMachineRacket(hWnd);
+  TickPlayerRacket(hWnd, dt);
+  TickMachineRacket(hWnd, dt);
 }
 
 void DrawRackets(HDC hdc, const RECT& client) {
@@ -704,14 +651,42 @@ void InitBall(HWND hWnd) {
     return;
   }
   g_ball_spawned = false;
-  g_ball_x       = 0;
-  g_ball_y       = 0;
-  g_ball_dx      = 0;
-  g_ball_dy      = 0;
+  g_ball_x       = 0.0f;
+  g_ball_y       = 0.0f;
+  g_ball_dx      = 0.0f;
+  g_ball_dy      = 0.0f;
   // Try to spawn now in case cxClient/cyClient are already known; otherwise
   // TickBall will retry every frame until WM_SIZE has fired.
   SpawnBall();
   InvalidateRect(hWnd, nullptr, FALSE);
+}
+
+float NextFrameDelta() {
+  LARGE_INTEGER now;
+  QueryPerformanceCounter(&now);
+  if (!g_qpc_initialized) {
+    // First call - establish the baseline. No previous frame, so the delta
+    // is zero; callers will see no movement this tick (which is fine,
+    // since the first tick is reserved for lazy-init anyway).
+    QueryPerformanceFrequency(&g_qpc_freq);
+    g_qpc_last        = now;
+    g_qpc_initialized = true;
+    return 0.0f;
+  }
+  const long long ticks =
+      static_cast<long long>(now.QuadPart - g_qpc_last.QuadPart);
+  g_qpc_last = now;
+  if (g_qpc_freq.QuadPart <= 0) {
+    return 0.0f;
+  }
+  float dt =
+      static_cast<float>(ticks) / static_cast<float>(g_qpc_freq.QuadPart);
+  if (dt < 0.0f) {
+    dt = 0.0f;
+  } else if (dt > kMaxDeltaSeconds) {
+    dt = kMaxDeltaSeconds;
+  }
+  return dt;
 }
 
 void CenterBallAtSpawn() {
@@ -735,13 +710,13 @@ void CenterRackets() {
   if (cyClient <= 0) {
     return;
   }
-  const int playfield_h = cyClient - kPlayfieldTopY;
-  const int centered    = kPlayfieldTopY + (playfield_h - kRacketH) / 2;
-  g_left_racket_y       = centered;
-  g_right_racket_y      = centered;
+  const float playfield_h = static_cast<float>(cyClient - kPlayfieldTopY);
+  const float centered    = kPlayfieldTopY + 0.5f * (playfield_h - kRacketH);
+  g_left_racket_y         = centered;
+  g_right_racket_y        = centered;
 }
 
-void TickBall(HWND hWnd) {
+void TickBall(HWND hWnd, float dt) {
   if (hWnd == nullptr) {
     return;
   }
@@ -761,8 +736,11 @@ void TickBall(HWND hWnd) {
   }
   const float old_x = g_ball_x;
   const float old_y = g_ball_y;
-  float nx          = old_x + g_ball_dx;
-  float ny          = old_y + g_ball_dy;
+  // dx / dy are px/sec; scale by real elapsed seconds so motion is timer-
+  // rate independent. Long stalls are clamped via kMaxDeltaSeconds upstream
+  // in NextFrameDelta - that prevents teleporting through paddles.
+  float nx = old_x + g_ball_dx * dt;
+  float ny = old_y + g_ball_dy * dt;
 
   // Top / bottom bounce. Reflect the overshoot back into the playfield
   // (nx' = 2*wall - nx) instead of clamping, so the ball preserves its
@@ -770,9 +748,11 @@ void TickBall(HWND hWnd) {
   if (ny < kPlayfieldTopY) {
     ny        = 2.0f * kPlayfieldTopY - ny;
     g_ball_dy = -g_ball_dy;
+    PlayHit(kWallHitHz);
   } else if (ny + kBallSize > cyClient) {
     ny        = 2.0f * (cyClient - kBallSize) - ny;
     g_ball_dy = -g_ball_dy;
+    PlayHit(kWallHitHz);
   }
 
   // Racket bounce. AABB overlap test gated on the ball moving INTO the
@@ -789,6 +769,7 @@ void TickBall(HWND hWnd) {
         ny + kBallSize > lr_top && ny < lr_bottom) {
       nx        = 2.0f * lr_right - nx;
       g_ball_dx = -g_ball_dx;
+      PlayHit(kRacketHitHz);
     }
   }
   if (g_right_racket_y >= 0) {
@@ -801,6 +782,7 @@ void TickBall(HWND hWnd) {
         ny + kBallSize > rr_top && ny < rr_bottom) {
       nx        = 2.0f * (rr_left - kBallSize) - nx;
       g_ball_dx = -g_ball_dx;
+      PlayHit(kRacketHitHz);
     }
   }
 
@@ -839,12 +821,12 @@ void TickBall(HWND hWnd) {
   const float max_x = (old_x > nx) ? old_x : nx;
   const float min_y = (old_y < ny) ? old_y : ny;
   const float max_y = (old_y > ny) ? old_y : ny;
-  RECT r;
-  r.left   = static_cast<int>(std::floor(min_x));
-  r.top    = static_cast<int>(std::floor(min_y));
-  r.right  = static_cast<int>(std::ceil(max_x + kBallSize));
-  r.bottom = static_cast<int>(std::ceil(max_y + kBallSize));
-  InvalidateRect(hWnd, &r, FALSE);
+  RECT rect;
+  rect.left   = static_cast<int>(std::floor(min_x));
+  rect.top    = static_cast<int>(std::floor(min_y));
+  rect.right  = static_cast<int>(std::ceil(max_x + kBallSize));
+  rect.bottom = static_cast<int>(std::ceil(max_y + kBallSize));
+  InvalidateRect(hWnd, &rect, FALSE);
 }
 
 void DrawBall(HDC hdc, const RECT& client) {
@@ -852,14 +834,14 @@ void DrawBall(HDC hdc, const RECT& client) {
   if (!g_ball_spawned) {
     return;
   }
-  const int x = static_cast<int>(std::floor(g_ball_x));
-  const int y = static_cast<int>(std::floor(g_ball_y));
-  RECT r;
-  r.left   = x;
-  r.top    = y;
-  r.right  = x + kBallSize;
-  r.bottom = y + kBallSize;
+  const int left_px = static_cast<int>(std::floor(g_ball_x));
+  const int top_px  = static_cast<int>(std::floor(g_ball_y));
+  RECT rect;
+  rect.left   = left_px;
+  rect.top    = top_px;
+  rect.right  = left_px + kBallSize;
+  rect.bottom = top_px + kBallSize;
   HBRUSH hbr = CreateSolidBrush(kBallColor);
-  FillRect(hdc, &r, hbr);
+  FillRect(hdc, &rect, hbr);
   DeleteObject(hbr);
 }

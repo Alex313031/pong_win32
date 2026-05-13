@@ -7,6 +7,7 @@ executable("pong_win32") {
   precompiled_header = "src/framework.h"
   precompiled_source = "src/pch.cc"
   sources = [
+    "src/constants.h",
     "src/framework.h",
     "src/globals.h",
     "src/main.cc",

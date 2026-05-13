@@ -183,6 +183,7 @@ static void ApplyMenuDefaults(HWND hWnd) {
   }
   SetPaused(IsMenuChecked(menu, IDM_PAUSE));
   SetPlayerOnLeft(IsMenuChecked(menu, IDM_PLAYER));
+  SetSoundOn(IsMenuChecked(menu, IDM_SOUND));
 }
 
 // Drives the Pause menu's CHECKED state from the actual run state. We treat
@@ -227,10 +228,15 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       }
       InitApp(hWnd);
       break;
-    case WM_TIMER:
-      TickRackets(hWnd);
-      TickBall(hWnd);
+    case WM_TIMER: {
+      // Measure real elapsed time once per frame and pass it to both tick
+      // functions so movement is timer-rate independent - the WM_TIMER
+      // cadence can stall under OS load without warping the ball's speed.
+      const float dt = NextFrameDelta();
+      TickRackets(hWnd, dt);
+      TickBall(hWnd, dt);
       break;
+    }
     case WM_LBUTTONDOWN: {
       // Start a click-and-drag window move. Snapshot cursor + window in
       // screen coords, take the mouse capture so MOUSEMOVE keeps arriving
@@ -302,42 +308,42 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
         GetCursorPos(&cur);
         const int dx = cur.x - s_drag_start_cursor.x;
         const int dy = cur.y - s_drag_start_cursor.y;
-        RECT r = s_drag_start_window;
+        RECT rect = s_drag_start_window;
         switch (s_resize_corner) {
           case HTTOPLEFT:
-            r.left += dx;
-            r.top += dy;
+            rect.left += dx;
+            rect.top += dy;
             break;
           case HTTOPRIGHT:
-            r.right += dx;
-            r.top += dy;
+            rect.right += dx;
+            rect.top += dy;
             break;
           case HTBOTTOMLEFT:
-            r.left += dx;
-            r.bottom += dy;
+            rect.left += dx;
+            rect.bottom += dy;
             break;
           case HTBOTTOMRIGHT:
           default:
-            r.right += dx;
-            r.bottom += dy;
+            rect.right += dx;
+            rect.bottom += dy;
             break;
         }
-        if (r.right - r.left < kMinResizeWindowSide) {
+        if (rect.right - rect.left < kMinResizeWindowSide) {
           if (s_resize_corner == HTTOPLEFT || s_resize_corner == HTBOTTOMLEFT) {
-            r.left = r.right - kMinResizeWindowSide;
+            rect.left = rect.right - kMinResizeWindowSide;
           } else {
-            r.right = r.left + kMinResizeWindowSide;
+            rect.right = rect.left + kMinResizeWindowSide;
           }
         }
-        if (r.bottom - r.top < kMinResizeWindowSide) {
+        if (rect.bottom - rect.top < kMinResizeWindowSide) {
           if (s_resize_corner == HTTOPLEFT || s_resize_corner == HTTOPRIGHT) {
-            r.top = r.bottom - kMinResizeWindowSide;
+            rect.top = rect.bottom - kMinResizeWindowSide;
           } else {
-            r.bottom = r.top + kMinResizeWindowSide;
+            rect.bottom = rect.top + kMinResizeWindowSide;
           }
         }
-        SetWindowPos(hWnd, nullptr, r.left, r.top,
-                     r.right - r.left, r.bottom - r.top,
+        SetWindowPos(hWnd, nullptr, rect.left, rect.top,
+                     rect.right - rect.left, rect.bottom - rect.top,
                      SWP_NOZORDER | SWP_NOACTIVATE);
       }
       break;
@@ -476,6 +482,15 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           SetMessage(kToggleMsg);
           InvalidateRect(hWnd, nullptr, FALSE);
           break;
+        case IDM_SOUND: {
+          // CHECKED == sound on. kUnMuteMsg is the "sound is now on"
+          // banner, kMuteMsg the "sound is now off" one, so the message
+          // matches the new state, not the previous one.
+          const bool now_on = ToggleMenuCheck(hWnd, IDM_SOUND);
+          SetSoundOn(now_on);
+          SetMessage(now_on ? kUnMuteMsg : kMuteMsg);
+          break;
+        }
         default:
           return DefWindowProcW(hWnd, message, wParam, lParam);
       }

@@ -58,8 +58,10 @@ void InitRackets(HWND hWnd);
 // moves the player's racket up/down accordingly. The CPU's racket sits
 // still until game logic lands. Up/Left = up, Down/Right = down. Only
 // reads input when our window is foreground so other apps don't drive
-// the paddle.
-void TickRackets(HWND hWnd);
+// the paddle. `dt` is the real elapsed time since the previous tick in
+// seconds, used to scale movement so game speed doesn't depend on the
+// timer's accuracy or rate.
+void TickRackets(HWND hWnd, float dt);
 
 // Paints both rackets onto hdc. Called from WM_PAINT after the background
 // fill / center line / segment displays so rackets sit on top of every
@@ -76,6 +78,11 @@ void SetPlayerOnLeft(bool on_left);
 // advances. Lazy spawn / centre still runs so the field appears even if
 // the game starts paused. Default comes from IDM_PAUSE's CHECKED state.
 void SetPaused(bool paused);
+
+// Sound toggle. When false, the hit-beep helpers in game.cc short-circuit
+// so paddle / wall bounces fall silent. Default comes from IDM_SOUND's
+// CHECKED state in the .rc.
+void SetSoundOn(bool on);
 
 // Resets the playfield to its "new match" state: rackets centred, ball
 // re-spawned at centre with a fresh random launch vector, scores zeroed.
@@ -98,9 +105,17 @@ void CenterBallAtSpawn();
 // resize-tracking purpose as CenterBallAtSpawn, but for the paddles.
 void CenterRackets();
 
-// Called from WM_TIMER. Advances the ball one step in its current direction
-// and invalidates just the union of its old and new rect.
-void TickBall(HWND hWnd);
+// Called from WM_TIMER. Advances the ball by velocity * dt seconds in its
+// current direction and invalidates just the union of its old and new rect.
+void TickBall(HWND hWnd, float dt);
+
+// Computes the elapsed wall-clock time (in seconds) since the previous
+// call. First call returns 0 (no previous baseline). Backed by
+// QueryPerformanceCounter, so much higher resolution than WM_TIMER itself.
+// Clamped to a sane upper bound so a long stall (debugger break, OS
+// scheduler hiccup) doesn't teleport game objects across the field.
+// Intended usage: call once per WM_TIMER, pass the result to both Tick*.
+float NextFrameDelta();
 
 // Paints the ball onto hdc. Called from WM_PAINT after the rackets.
 void DrawBall(HDC hdc, const RECT& client);

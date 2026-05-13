@@ -1,5 +1,5 @@
-#ifndef MOMDAY_UTILS_H_
-#define MOMDAY_UTILS_H_
+#ifndef PONGWIN32_UTILS_H_
+#define PONGWIN32_UTILS_H_
 
 #include "framework.h"
 
@@ -100,4 +100,4 @@ bool IsWindowsXpOrLater();
 // For checking system's commctl32.dll
 bool IsCommCtrlAtLeast(const DWORD to_compare);
 
-#endif // MOMDAY_UTILS_H_
+#endif // PONGWIN32_UTILS_H_

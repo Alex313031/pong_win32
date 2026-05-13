@@ -75,19 +75,19 @@ BEGIN
     END
     POPUP "&Settings"
     BEGIN
-        MENUITEM "S&ound?",        IDM_SOUND
+        MENUITEM "S&ound?",        IDM_SOUND, CHECKED
         MENUITEM "&Toggle Player", IDM_PLAYER
         MENUITEM SEPARATOR
         POPUP "S&peed"
         BEGIN
             MENUITEM "&Low",     IDM_SPEED_LOW
-            MENUITEM "&Med",     IDM_SPEED_MED
+            MENUITEM "&Med",     IDM_SPEED_MED, CHECKED
             MENUITEM "&High",    IDM_SPEED_HIGH
         END
         POPUP "&Difficulty"
         BEGIN
             MENUITEM "&Easy",      IDM_EASY
-            MENUITEM "&Normal",    IDM_MED
+            MENUITEM "&Normal",    IDM_MED, CHECKED
             MENUITEM "&Aggresive", IDM_HARD
         END
     END

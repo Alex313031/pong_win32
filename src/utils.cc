@@ -82,17 +82,17 @@ void FillRectWithGradient(HDC hdc,
   // One filled row per scan line. Denominator is (height - 1) so the
   // very last row lands exactly on bottomColor instead of one step
   // shy of it.
-  const double invSpan = (height > 1) ? 1.0 / (height - 1) : 0.0;
-  for (int y = rc.top; y < rc.bottom; ++y) {
-    const double t = (y - rc.top) * invSpan;
-    const int r = static_cast<int>(std::lround(r1 + (r2 - r1) * t));
-    const int g = static_cast<int>(std::lround(g1 + (g2 - g1) * t));
-    const int b = static_cast<int>(std::lround(b1 + (b2 - b1) * t));
-    HBRUSH hBr = CreateSolidBrush(RGB(r, g, b));
+  const double inv_span = (height > 1) ? 1.0 / (height - 1) : 0.0;
+  for (int row_y = rc.top; row_y < rc.bottom; ++row_y) {
+    const double frac = (row_y - rc.top) * inv_span;
+    const int red   = static_cast<int>(std::lround(r1 + (r2 - r1) * frac));
+    const int green = static_cast<int>(std::lround(g1 + (g2 - g1) * frac));
+    const int blue  = static_cast<int>(std::lround(b1 + (b2 - b1) * frac));
+    HBRUSH hBr = CreateSolidBrush(RGB(red, green, blue));
     if (hBr == nullptr) {
       continue;
     }
-    RECT row = {rc.left, y, rc.right, y + 1};
+    RECT row = {rc.left, row_y, rc.right, row_y + 1};
     FillRect(hdc, &row, hBr);
     DeleteObject(hBr);
   }
