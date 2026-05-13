@@ -3,10 +3,15 @@
 export HERE=${PWD} &&
 export TARGET=../src/res &&
 
-ffmpeg -y -i ${HERE}/chomp.mp3 -filter:a "volume=0.25" -c:a adpcm_ms -ar 48000 -ac 2 ${HERE}/temp.wav &&
+python3 ${HERE}/make_sine_wav.py &&
 
-ffmpeg -stream_loop 7 -i ${HERE}/temp.wav -c copy ${TARGET}/ants.wav &&
+ffmpeg -y -i ${HERE}/pinball_fantasies_partyland.wav -filter:a "volume=0.75" -c:a adpcm_ms -ar 44100 -ac 2 ${TARGET}/music.wav &&
 
-rm -fv ${HERE}/temp.wav &&
+ffmpeg -y -i ${HERE}/racket.wav -filter:a "volume=0.75" -c:a adpcm_ms -ar 44100 -ac 2 ${TARGET}/racket.wav &&
+
+ffmpeg -y -i ${HERE}/wall.wav -filter:a "volume=0.75" -c:a adpcm_ms -ar 44100 -ac 2 ${TARGET}/wall.wav &&
+
+rm -fv ${HERE}/racket.wav &&
+rm -fv ${HERE}/wall.wav &&
 
 exit 0
