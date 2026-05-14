@@ -35,9 +35,10 @@ std::wstring g_message;
 bool g_player_on_left = false;
 
 // Speed / difficulty settings. Defaults to Med so the unconfigured app
-// matches the raw *PxPerSec constants. SpeedMult() / DifficultyMult()
-// translate these to floating multipliers consumed by SpawnBall, the
-// racket ticks, and the ball tick.
+// matches the raw *PxPerSec constants. SpeedMult() turns the Speed enum
+// into a velocity multiplier for ball and rackets; LagFrames() turns the
+// Difficulty enum into a count of ball-y history entries the CPU racket
+// reads from instead of the live g_ball_y (see g_ai_history below).
 Speed g_speed           = Speed::Med;
 Difficulty g_difficulty = Difficulty::Med;
 
@@ -50,14 +51,24 @@ float SpeedMult() {
   }
 }
 
-float DifficultyMult() {
+int LagFrames() {
   switch (g_difficulty) {
-    case Difficulty::Easy: return kDifficultyMultEasy;
-    case Difficulty::Hard: return kDifficultyMultHard;
+    case Difficulty::Easy: return kAiLagFramesEasy;
+    case Difficulty::Hard: return kAiLagFramesHard;
     case Difficulty::Med:
-    default:               return kDifficultyMultMed;
+    default:               return kAiLagFramesMed;
   }
 }
+
+// Ring buffer of recent ball y positions for the CPU's prediction lag.
+// TickBall pushes the post-bounce g_ball_y here every frame; the index
+// rolls modulo kAiHistorySize. TickMachineRacket reads from
+// (g_ai_history_idx - 1 - LagFrames()) so the AI is always aiming at
+// where the ball was N frames ago. SpawnBall fills the buffer with the
+// spawn y so the AI has a sensible read before any movement has
+// occurred yet.
+float g_ai_history[kAiHistorySize] = {};
+int g_ai_history_idx               = 0;
 
 // Racket Y coords are float so per-frame "speed * dt" deltas accumulate
 // sub-pixel motion correctly across frames; we floor() when building the
@@ -357,25 +368,33 @@ void TickPlayerRacket(HWND hWnd, float dt) {
   MoveRacket(hWnd, racket_y, g_player_on_left, target);
 }
 
-// CPU racket AI: track the ball's centre y at kMachineRacketSpeedPxPerSec.
-// A small dead-zone (half a frame's movement) prevents back-and-forth
-// jitter when the racket is already on top of the ball. Tracks regardless
-// of which way the ball is moving - same as the original Pong CPU; if we
-// ever want to make it more humanly imperfect, this is where to do it.
+// CPU racket AI: track the ball's centre y at kMachineRacketSpeedPxPerSec,
+// but aimed at where the ball *was* LagFrames() frames ago, not where it
+// is now. Larger lag => the AI's aim falls behind quick angle changes,
+// which is what makes Easy beatable and Hard hard. A small dead-zone
+// (half a frame's movement) prevents back-and-forth jitter when the
+// racket is on top of the read-out y. Tracks regardless of which way
+// the ball is moving - same as the original Pong CPU.
 void TickMachineRacket(HWND hWnd, float dt) {
   if (!g_ball_spawned) {
     return;
   }
   const bool machine_on_left = !g_player_on_left;
-  float* racket_y       = machine_on_left ? &g_left_racket_y
-                                          : &g_right_racket_y;
-  const float ball_cy   = g_ball_y + 0.5f * kBallSize;
-  const float racket_cy = *racket_y + 0.5f * kRacketH;
-  const float diff      = ball_cy - racket_cy;
-  // Speed scales everything; difficulty stacks on top for the machine only.
-  const float step      = kMachineRacketSpeedPxPerSec * SpeedMult() *
-                          DifficultyMult() * dt;
-  const float dead_zone = 0.5f * step;
+  float* racket_y            = machine_on_left ? &g_left_racket_y
+                                               : &g_right_racket_y;
+  // Lag lookup: TickBall writes the latest g_ball_y to g_ai_history then
+  // post-increments the index, so (idx - 1) is the most recent entry and
+  // (idx - 1 - LagFrames()) is the one we want. + kAiHistorySize before
+  // the modulo keeps the value non-negative.
+  const int lag           = LagFrames();
+  const int read_idx      = (g_ai_history_idx - 1 - lag + kAiHistorySize) %
+                            kAiHistorySize;
+  const float lagged_y    = g_ai_history[read_idx];
+  const float ball_cy     = lagged_y + 0.5f * kBallSize;
+  const float racket_cy   = *racket_y + 0.5f * kRacketH;
+  const float diff        = ball_cy - racket_cy;
+  const float step        = kMachineRacketSpeedPxPerSec * SpeedMult() * dt;
+  const float dead_zone   = 0.5f * step;
   if (diff > dead_zone) {
     MoveRacket(hWnd, racket_y, machine_on_left, *racket_y + step);
   } else if (diff < -dead_zone) {
@@ -404,6 +423,14 @@ void SpawnBall() {
   g_ball_dx              = sx * ball_speed * std::cos(angle);
   g_ball_dy              = sy * ball_speed * std::sin(angle);
   g_ball_spawned = true;
+  // Prime the AI lag history with the spawn y so the CPU has a sensible
+  // value to read from even on its very first tick - otherwise the buffer
+  // would still be all zeros and the AI would dive at the top of the
+  // window for the first few frames.
+  for (int i = 0; i < kAiHistorySize; ++i) {
+    g_ai_history[i] = g_ball_y;
+  }
+  g_ai_history_idx = 0;
 }
 
 } // namespace
@@ -623,8 +650,9 @@ void SetSpeed(Speed speed) {
 }
 
 void SetDifficulty(Difficulty difficulty) {
-  // Difficulty only feeds into TickMachineRacket via DifficultyMult(),
-  // which is read each frame - no per-instance state to rescale.
+  // Difficulty only feeds into TickMachineRacket via LagFrames(), which
+  // is read each frame against g_ai_history - no per-instance state to
+  // rescale.
   g_difficulty = difficulty;
 }
 
@@ -848,6 +876,12 @@ void TickBall(HWND hWnd, float dt) {
   }
   g_ball_x = nx;
   g_ball_y = ny;
+  // Feed the AI's prediction-lag history. Writing the post-bounce y
+  // (rather than the tentative pre-bounce one) means the CPU sees a
+  // continuous trajectory across reflections, not phantom out-of-bounds
+  // jumps.
+  g_ai_history[g_ai_history_idx] = g_ball_y;
+  g_ai_history_idx               = (g_ai_history_idx + 1) % kAiHistorySize;
 
   // Scoring: a ball that has fully exited the client area on one side hands
   // a point to the *other* side, then respawns at centre with a fresh random

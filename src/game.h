@@ -92,10 +92,14 @@ void SetSoundOn(bool on);
 enum class Speed { Low, Med, High };
 void SetSpeed(Speed speed);
 
-// CPU difficulty setting. Med == the kMachineRacketSpeedPxPerSec constant
-// unchanged; Easy drops the machine racket by a third, Hard raises it by
-// a third. Multiplied *on top of* the Speed setting (so High + Hard
-// stacks). Player racket and ball are untouched.
+// CPU difficulty setting. The machine racket always moves at
+// kMachineRacketSpeedPxPerSec (scaled by Speed); difficulty controls a
+// reaction-lag instead - the AI aims at the ball's y from N frames ago
+// rather than its current y. Easy = ~200 ms lag, Med = ~100 ms,
+// Hard = ~50 ms (see kAiLagFrames* in constants.h). That matches the
+// original Pong AI's beatability profile - perfect tracking but
+// limited by speed and a small reaction delay - rather than just
+// making the CPU faster on harder settings.
 enum class Difficulty { Easy, Med, Hard };
 void SetDifficulty(Difficulty difficulty);
 

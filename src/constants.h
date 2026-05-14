@@ -158,21 +158,36 @@ constexpr float kRacketSpeedPxPerSec        = 400.0f;
 constexpr float kMachineRacketSpeedPxPerSec = 200.0f;
 
 // ---------------------------------------------------------------------------
-// Speed and difficulty multipliers.
+// Speed and difficulty.
 //
-// Med / Med matches the *PxPerSec constants above unchanged. Low / Easy
-// drop a third off (multiplier 2/3), High / Hard add a third (4/3).
-// `Speed` scales the ball, the player's racket, and the machine's
-// racket; `Difficulty` scales only the machine's racket and stacks on
-// top of the speed multiplier - so picking Hard while keeping Med speed
-// only sharpens the CPU, while picking High speed pulls everything
-// upward together (machine included).
-constexpr float kSpeedMultLow       = 2.0f / 3.0f;
-constexpr float kSpeedMultMed       = 1.0f;
-constexpr float kSpeedMultHigh      = 4.0f / 3.0f;
-constexpr float kDifficultyMultEasy = 2.0f / 3.0f;
-constexpr float kDifficultyMultMed  = 1.0f;
-constexpr float kDifficultyMultHard = 4.0f / 3.0f;
+// `Speed` is a multiplier on the *PxPerSec constants above: Med = 1.0,
+// Low drops a third off (2/3), High adds a third (4/3). It scales the
+// ball, the player's racket, and the machine's racket together.
+//
+// `Difficulty` is *not* a speed scaling - the CPU racket runs at full
+// kMachineRacketSpeedPxPerSec regardless. Instead it controls how far
+// behind the live ball the AI's aim lags (see kAiLagFrames* below). That
+// matches the way the original Pong AI was tuned: it tracked perfectly
+// but with limited speed and a tiny human-like reaction delay, rather
+// than just being raw-speed unfair on harder settings.
+constexpr float kSpeedMultLow = 2.0f / 3.0f;
+constexpr float kSpeedMultMed = 1.0f;
+constexpr float kSpeedMultHigh = 4.0f / 3.0f;
+
+// Difficulty is modelled as prediction *lag*, not racket speed: the CPU
+// tracks the ball's y position from N frames ago instead of its current
+// y. Larger lag = the AI's aim falls behind sharp angle changes more,
+// which is what made the original Pong AI feel beatable despite tracking
+// the ball perfectly otherwise. At kGameTickDelay's ~60fps target a
+// frame is ~16.7ms, so the values below come out to roughly 100ms / 67ms
+// / 50ms. (75ms for Med doesn't land on a frame boundary; 4 frames is
+// the nearest integer.)
+constexpr int kAiLagFramesEasy = 6;
+constexpr int kAiLagFramesMed  = 4;
+constexpr int kAiLagFramesHard = 3;
+// Ring-buffer size for the ball y-history. Must exceed the largest
+// kAiLagFrames* so reads from the past don't wrap into future entries.
+constexpr int kAiHistorySize   = 16;
 
 // ---------------------------------------------------------------------------
 // Spawn circle.
