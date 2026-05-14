@@ -6,6 +6,9 @@
 // Max number of points that can be kept track of in one of the 7 segment display areas.
 static inline constexpr unsigned int kMaxNumPoints = 999u;
 
+// Number of points before you lose the game, or progress to next difficulty.
+static inline constexpr unsigned int kWonRoundPoints = 100u;
+
 // Initializes the two 7 segment display areas, in top left and right of the client
 // area of hWnd. Each display has 3 7 segment numerals, allowing up to 999 points.
 // Resets both scores to zero and invalidates the window so the displays appear

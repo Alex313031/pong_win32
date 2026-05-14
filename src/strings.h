@@ -7,7 +7,7 @@
 
 inline const std::wstring kLoseMsg = L"You Lose... \nPress F2 to Play Again.";
 
-inline const std::wstring kWinMsg = L"You Win!";
+inline const std::wstring kWonMsg = L"You Win this Round! \nPress Space to Continue.";
 
 inline const std::wstring kNewGameMsg = L"New Game \nPress Space to Play.";
 

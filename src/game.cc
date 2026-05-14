@@ -433,6 +433,42 @@ void SpawnBall() {
   g_ai_history_idx = 0;
 }
 
+// Real-Pong racket bounce: the new direction depends on where on the
+// paddle the ball hit, not just the incoming angle. Centre hits return
+// near-horizontal; the closer to the paddle's top / bottom edge the ball
+// is, the sharper the new angle (up to kMaxBounceAngle off horizontal).
+//
+// `ball_top_y`  is the ball's tentative new y (ny in TickBall) at hit time.
+// `racket_top_y` is the paddle's current y.
+// `ball_now_moves_right` is the post-bounce horizontal sign - i.e. true
+//   when bouncing off the LEFT racket (ball was moving left, now moves
+//   right), false when bouncing off the right.
+//
+// Speed magnitude is preserved across the bounce so consecutive rallies
+// don't compound speed - same as the original.
+void ApplyRacketBounce(float ball_top_y, float racket_top_y,
+                       bool ball_now_moves_right) {
+  const float ball_center_y   = ball_top_y + 0.5f * kBallSize;
+  const float racket_center_y = racket_top_y + 0.5f * kRacketH;
+  const float half_h          = 0.5f * kRacketH;
+  // Normalised offset in [-1, 1]. +1 = bottom edge, -1 = top edge.
+  // Clamped because the AABB overlap test allows the ball's centre to be
+  // slightly outside the paddle if the ball is bigger than the paddle on
+  // a corner clip - we don't want the angle to overshoot 90 degrees.
+  float normalized = (ball_center_y - racket_center_y) / half_h;
+  if (normalized < -1.0f) {
+    normalized = -1.0f;
+  } else if (normalized > 1.0f) {
+    normalized = 1.0f;
+  }
+  const float angle = normalized * static_cast<float>(kMaxBounceAngle);
+  const float speed =
+      std::sqrt(g_ball_dx * g_ball_dx + g_ball_dy * g_ball_dy);
+  const float x_sign = ball_now_moves_right ? 1.0f : -1.0f;
+  g_ball_dx = x_sign * speed * std::cos(angle);
+  g_ball_dy = speed * std::sin(angle);
+}
+
 } // namespace
 
 bool InitSegmentDisplays(HWND hWnd) {
@@ -559,8 +595,15 @@ void DrawMessageArea(HDC hdc, const RECT& client) {
   if (rect.right <= rect.left) {
     return;
   }
+  // Vertical gradient backdrop using the global g_top_color / g_bkg_color
+  // pair (dark grey -> black by default; track the same colours that any
+  // future full-canvas gradient will use). Painted before the frame and
+  // text so both sit on top of it. We fill the full rect (including the
+  // 1-px frame footprint) and let FrameRect overdraw the border below.
+  FillRectWithGradient(hdc, rect, g_top_color, g_bkg_color);
   // FrameRect draws a 1-px outline using the brush's colour, leaving the
-  // interior untouched - exactly what we want for an empty text box.
+  // interior untouched - exactly what we want as a border on top of the
+  // gradient backdrop.
   HBRUSH hbr = CreateSolidBrush(kMessageAreaColor);
   FrameRect(hdc, &rect, hbr);
   DeleteObject(hbr);
@@ -852,8 +895,11 @@ void TickBall(HWND hWnd, float dt) {
     if (g_ball_dx < 0.0f &&
         nx < lr_right && nx + kBallSize > lr_left &&
         ny + kBallSize > lr_top && ny < lr_bottom) {
-      nx        = 2.0f * lr_right - nx;
-      g_ball_dx = -g_ball_dx;
+      nx = 2.0f * lr_right - nx;
+      // Real-Pong-style angle bounce: where the ball hit on the paddle
+      // sets the new vertical component, not the incoming dy. After this
+      // call the ball moves right.
+      ApplyRacketBounce(ny, g_left_racket_y, /*ball_now_moves_right=*/true);
       PlayHit(IDR_RACKET_WAV);
     }
   }
@@ -865,8 +911,8 @@ void TickBall(HWND hWnd, float dt) {
     if (g_ball_dx > 0.0f &&
         nx + kBallSize > rr_left && nx < rr_right &&
         ny + kBallSize > rr_top && ny < rr_bottom) {
-      nx        = 2.0f * (rr_left - kBallSize) - nx;
-      g_ball_dx = -g_ball_dx;
+      nx = 2.0f * (rr_left - kBallSize) - nx;
+      ApplyRacketBounce(ny, g_right_racket_y, /*ball_now_moves_right=*/false);
       PlayHit(IDR_RACKET_WAV);
     }
   }

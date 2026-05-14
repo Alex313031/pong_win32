@@ -33,8 +33,13 @@ static bool s_was_minimized = false;
 // require F3 / Space to resume.
 static bool s_first_start = true;
 
-// Current background color. Defaults to black;
+// Background colours. g_bkg_color is the solid-fill for the playfield and
+// the bottom of any vertical gradient; g_top_color is the top of a vertical
+// gradient (currently the message-area backdrop, available for a future
+// full-canvas gradient too). Defaults match the message area's classic
+// "dark grey fading to black" look.
 COLORREF g_bkg_color = RGB_BLACK;
+COLORREF g_top_color = RGB_DKGREY;
 
 // Match-level run state. false = game stopped (between matches, or on first
 // launch sitting at the "ready" screen). The tick handlers in game.cc gate

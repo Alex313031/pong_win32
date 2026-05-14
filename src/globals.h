@@ -15,7 +15,8 @@ extern volatile bool g_running;  // Controlling global game running/stop state
 extern volatile bool g_paused;   // Pause toggle - tick handlers gate movement on this
 extern volatile bool g_sound_on; // Sound preference - sound.cc owns it, SyncBgm reads it
 
-extern COLORREF g_bkg_color; // Current background color, changed via the Colors menu
+extern COLORREF g_bkg_color; // Solid bg / bottom of any vertical gradient
+extern COLORREF g_top_color; // Top of any vertical gradient (e.g., message area)
 
 extern bool can_use_582_controls; // Whether we can use "modern" common controls from XP+
 

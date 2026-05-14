@@ -7,6 +7,7 @@
 #define RGB_BLACK   RGB(0, 0, 0)
 #define RGB_WHITE   RGB(255, 255, 255)
 #define RGB_GREY    RGB(128, 128, 128)
+#define RGB_DKGREY  RGB(48, 48, 48)
 #define RGB_LTGREY  RGB(192, 192, 192) // Classic Win9x/2000 button-face grey
 #define RGB_RED     RGB(255, 0, 0)
 #define RGB_GREEN   RGB(0, 255, 0)
@@ -155,7 +156,7 @@ constexpr int kRacketW                      = 14;
 constexpr int kRacketH                      = 80;
 constexpr int kRacketEdgeMarginX            = 18;
 constexpr float kRacketSpeedPxPerSec        = 400.0f;
-constexpr float kMachineRacketSpeedPxPerSec = 200.0f;
+constexpr float kMachineRacketSpeedPxPerSec = 300.0f;
 
 // ---------------------------------------------------------------------------
 // Speed and difficulty.
@@ -170,9 +171,9 @@ constexpr float kMachineRacketSpeedPxPerSec = 200.0f;
 // matches the way the original Pong AI was tuned: it tracked perfectly
 // but with limited speed and a tiny human-like reaction delay, rather
 // than just being raw-speed unfair on harder settings.
-constexpr float kSpeedMultLow = 2.0f / 3.0f;
+constexpr float kSpeedMultLow = 0.6666667;
 constexpr float kSpeedMultMed = 1.0f;
-constexpr float kSpeedMultHigh = 4.0f / 3.0f;
+constexpr float kSpeedMultHigh = 1.333333;
 
 // Difficulty is modelled as prediction *lag*, not racket speed: the CPU
 // tracks the ball's y position from N frames ago instead of its current
@@ -182,12 +183,12 @@ constexpr float kSpeedMultHigh = 4.0f / 3.0f;
 // frame is ~16.7ms, so the values below come out to roughly 100ms / 67ms
 // / 50ms. (75ms for Med doesn't land on a frame boundary; 4 frames is
 // the nearest integer.)
-constexpr int kAiLagFramesEasy = 6;
-constexpr int kAiLagFramesMed  = 4;
-constexpr int kAiLagFramesHard = 3;
+constexpr int kAiLagFramesEasy = 4;
+constexpr int kAiLagFramesMed  = 2;
+constexpr int kAiLagFramesHard = 1;
 // Ring-buffer size for the ball y-history. Must exceed the largest
 // kAiLagFrames* so reads from the past don't wrap into future entries.
-constexpr int kAiHistorySize   = 16;
+inline constexpr int kAiHistorySize   = 16;
 
 // ---------------------------------------------------------------------------
 // Spawn circle.
@@ -215,8 +216,15 @@ constexpr float kBallSpeedPxPerSec = 500.0f;
 // flips picking left/right and up/down. 45 keeps the motion noticeably
 // horizontal-dominant - the original Pong feel - while still giving the
 // player enough vertical surprise to make tracking it interesting.
-constexpr double kPi             = 3.14159265358979323846;
+constexpr double kPi             = 3.14159265358979323;
 constexpr double kMaxLaunchAngle = kPi / 4.0;
+
+// Max bounce angle off a racket. Real Pong tied the bounce angle to where
+// on the paddle the ball hit: dead-centre = horizontal, edge = sharp. Hits
+// scale linearly between centre and edge; edge hits cap at this angle off
+// horizontal. 60 degrees keeps the trajectory readable while breaking the
+// purely-horizontal stalemates an angle-preserving bounce would allow.
+constexpr double kMaxBounceAngle = kPi / 3.0;
 
 // ---------------------------------------------------------------------------
 // Audio cues.
