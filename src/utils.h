@@ -11,7 +11,10 @@ typedef void(WINAPI* RtlGetNtVersionNumbers_t)(DWORD* pNtMajorVersion,
 
 extern bool g_debug_mode;
 
-// Bitmap buffer
+// Back-buffer GDI handles. Defined in main.cc; managed by EnsureBackBuffer
+// / DestroyBackBuffer there. SaveClientBitmap reads from g_hbmMem to take
+// the click-time snapshot.
+extern HDC g_hdcMem;
 extern HBITMAP g_hbmMem;
 
 // Save client area as a .BMP photo, capturing moment menu was clicked. On

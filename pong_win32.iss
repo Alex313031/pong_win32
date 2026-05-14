@@ -2,7 +2,7 @@
 ; Only for Inno Setup 5.x to support Windows 2000/XP
 ; Tested with ISS 5.6.1
 
-#define AppVer "1.0.0"
+#define AppVer "0.1.2"
 #define AppName "Pong Win32"
 #define ExeName "pong_win32"
 #define Developer "Alex313031"

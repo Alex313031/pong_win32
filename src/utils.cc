@@ -5,19 +5,121 @@
 #include "globals.h"
 #include "resource.h"
 
-HBITMAP g_hbmMem = nullptr;
 
-// Opens a system Save As dialog and writes the current back buffer to a 32-bit
-// BMP file at the path the user chose. On success, if outSavedPath is non-null,
-// the chosen path is written there so the caller can surface it to the user
-// (e.g. via UserMessage). Pass nullptr to skip.
+// Opens a system Save As dialog and writes a snapshot of the window's
+// client area to a 32-bit BMP file at the path the user chose. On
+// success, if outSavedPath is non-null, the chosen path is written there
+// so the caller can surface it. Pass nullptr to skip.
+//
+// The snapshot is taken from the double-buffer (g_hbmMem) at the *very
+// top* of this function, before the Save dialog opens - that way the
+// captured frame matches what the user saw at the moment they clicked
+// the menu item, not whatever's on screen by the time they pick a path.
+// The live back-buffer keeps being repainted underneath while the dialog
+// is up; only our private clone is frozen.
 //
 // BMP layout (no palette for 32-bit):
 //   BITMAPFILEHEADER  (14 bytes) - magic 'BM', file size, pixel data offset
 //   BITMAPINFOHEADER  (40 bytes) - dimensions, bit depth, compression
 //   Pixel data        (w * h * 4 bytes) - 32-bit BGRA, bottom-up row order
 bool SaveClientBitmap(HWND hWnd, std::wstring* outSavedPath) {
-  return true; // TODO
+  if (hWnd == nullptr || g_hdcMem == nullptr || g_hbmMem == nullptr) {
+    return false;
+  }
+
+  // ---- Clone the back buffer immediately. ----
+  BITMAP bm = {};
+  if (GetObjectW(g_hbmMem, sizeof(bm), &bm) == 0) {
+    return false;
+  }
+  const int width  = bm.bmWidth;
+  const int height = bm.bmHeight;
+  if (width <= 0 || height <= 0) {
+    return false;
+  }
+  HDC hdcRef = GetDC(hWnd);
+  if (hdcRef == nullptr) {
+    return false;
+  }
+  HBITMAP hbm_snap = CreateCompatibleBitmap(hdcRef, width, height);
+  ReleaseDC(hWnd, hdcRef);
+  if (hbm_snap == nullptr) {
+    return false;
+  }
+  HDC hdc_snap = CreateCompatibleDC(g_hdcMem);
+  if (hdc_snap == nullptr) {
+    DeleteObject(hbm_snap);
+    return false;
+  }
+  HBITMAP hbm_default = static_cast<HBITMAP>(SelectObject(hdc_snap, hbm_snap));
+  // SRCCOPY: straight copy of every pixel from the back buffer.
+  BitBlt(hdc_snap, 0, 0, width, height, g_hdcMem, 0, 0, SRCCOPY);
+
+  // ---- Now show the Save dialog. The clone above is frozen even though
+  // ---- the live back-buffer keeps repainting while the dialog is up. ----
+  wchar_t szFile[MAX_PATH] = {};
+  OPENFILENAMEW ofn        = {};
+  ofn.lStructSize          = sizeof(OPENFILENAMEW);
+  ofn.hwndOwner            = hWnd;
+  ofn.lpstrFile            = szFile;
+  ofn.nMaxFile             = MAX_PATH;
+  ofn.lpstrFilter          = L"Bitmap Files (*.bmp)\0*.bmp\0All Files (*.*)\0*.*\0";
+  ofn.nFilterIndex         = 1;
+  ofn.lpstrDefExt          = L"bmp";
+  ofn.lpstrTitle           = L"Save Screenshot As";
+  ofn.Flags                = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
+  const bool got_path      = GetSaveFileNameW(&ofn);
+  if (!got_path) {
+    SelectObject(hdc_snap, hbm_default);
+    DeleteDC(hdc_snap);
+    DeleteObject(hbm_snap);
+    return false;
+  }
+
+  // ---- Read out the snapshot pixels in BMP-friendly format. ----
+  BITMAPINFOHEADER bi = {};
+  bi.biSize           = sizeof(BITMAPINFOHEADER);
+  bi.biWidth          = width;
+  bi.biHeight         = height;
+  bi.biPlanes         = 1;
+  bi.biBitCount       = 32;
+  bi.biCompression    = BI_RGB;
+  bi.biSizeImage      = static_cast<DWORD>(width * height * 4);
+  std::vector<BYTE> pixels(bi.biSizeImage);
+  const int scan_lines =
+      GetDIBits(hdc_snap, hbm_snap, 0, static_cast<UINT>(height), pixels.data(),
+                reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
+
+  // Drop the snapshot's GDI handles before file I/O so we don't hold them
+  // across a slow CreateFile / WriteFile.
+  SelectObject(hdc_snap, hbm_default);
+  DeleteDC(hdc_snap);
+  DeleteObject(hbm_snap);
+
+  if (scan_lines == 0) {
+    return false;
+  }
+
+  // ---- Write the BMP file. ----
+  const DWORD pixelDataOffset = sizeof(BITMAPFILEHEADER) + sizeof(BITMAPINFOHEADER);
+  BITMAPFILEHEADER bf         = {};
+  bf.bfType                   = 0x4D42; // 'BM' signature
+  bf.bfSize                   = pixelDataOffset + bi.biSizeImage;
+  bf.bfOffBits                = pixelDataOffset;
+  HANDLE hFile =
+      CreateFileW(szFile, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (hFile == INVALID_HANDLE_VALUE) {
+    return false;
+  }
+  DWORD written = 0;
+  const bool ok = WriteFile(hFile, &bf, sizeof(bf), &written, nullptr) &&
+                  WriteFile(hFile, &bi, sizeof(bi), &written, nullptr) &&
+                  WriteFile(hFile, pixels.data(), bi.biSizeImage, &written, nullptr);
+  CloseHandle(hFile);
+  if (ok && outSavedPath != nullptr) {
+    *outSavedPath = szFile;
+  }
+  return ok;
 }
 
 HFONT GetFont(int size, std::wstring font, bool italic) {

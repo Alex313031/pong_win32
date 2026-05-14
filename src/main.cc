@@ -43,6 +43,19 @@ COLORREF g_bkg_color = RGB_BLACK;
 // tick / input loop onto another thread.
 volatile bool g_running = false;
 
+// Back-buffer for double-buffered painting. All Draw* calls in WM_PAINT
+// target g_hdcMem; we BitBlt the dirty rect to the window DC at the end
+// of the handler. The back buffer is also what SaveClientBitmap clones to
+// freeze the exact frame the user saw when they clicked the menu item.
+//
+// Declared extern in utils.h so SaveClientBitmap (in utils.cc) can read
+// from it without having to thread a parameter through every call site.
+HDC g_hdcMem            = nullptr;
+HBITMAP g_hbmMem        = nullptr;
+static HBITMAP s_hbm_default = nullptr; // default 1x1 bitmap, restored on destroy
+static int s_back_w     = 0;
+static int s_back_h     = 0;
+
 bool g_debug_mode = is_debug;
 
 // Store handles to main icon since commonly used
@@ -321,6 +334,59 @@ static WPARAM s_resize_corner      = HTBOTTOMRIGHT;
 // floor in WM_GETMINMAXINFO so manual dragging can't undercut it.
 constexpr int kMinResizeWindowSide = 200;
 
+// Back-buffer lifecycle helpers. EnsureBackBuffer is called from WM_PAINT
+// each frame - cheap no-op when the cached size matches the client.
+// DestroyBackBuffer runs in WM_DESTROY. Compatible bitmaps come with a
+// default 1x1 bitmap selected; we save it to s_hbm_default and restore it
+// before DeleteDC so GDI doesn't leak the bitmap we selected in.
+static bool EnsureBackBuffer(HDC hdc_ref, int width, int height) {
+  if (g_hdcMem != nullptr && g_hbmMem != nullptr &&
+      s_back_w == width && s_back_h == height) {
+    return true;
+  }
+  // Recreate from scratch when size changes or first call.
+  if (g_hdcMem != nullptr) {
+    SelectObject(g_hdcMem, s_hbm_default);
+    DeleteDC(g_hdcMem);
+    g_hdcMem = nullptr;
+  }
+  if (g_hbmMem != nullptr) {
+    DeleteObject(g_hbmMem);
+    g_hbmMem = nullptr;
+  }
+  g_hdcMem = CreateCompatibleDC(hdc_ref);
+  if (g_hdcMem == nullptr) {
+    return false;
+  }
+  g_hbmMem = CreateCompatibleBitmap(hdc_ref, width, height);
+  if (g_hbmMem == nullptr) {
+    DeleteDC(g_hdcMem);
+    g_hdcMem = nullptr;
+    return false;
+  }
+  s_hbm_default = static_cast<HBITMAP>(SelectObject(g_hdcMem, g_hbmMem));
+  s_back_w      = width;
+  s_back_h      = height;
+  return true;
+}
+
+static void DestroyBackBuffer() {
+  if (g_hdcMem != nullptr) {
+    if (s_hbm_default != nullptr) {
+      SelectObject(g_hdcMem, s_hbm_default);
+      s_hbm_default = nullptr;
+    }
+    DeleteDC(g_hdcMem);
+    g_hdcMem = nullptr;
+  }
+  if (g_hbmMem != nullptr) {
+    DeleteObject(g_hbmMem);
+    g_hbmMem = nullptr;
+  }
+  s_back_w = 0;
+  s_back_h = 0;
+}
+
 LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
   switch (message) {
     case WM_CREATE:
@@ -488,23 +554,35 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       break;
     }
     case WM_PAINT: {
-      // WM_ERASEBKGND returned TRUE so Windows skipped its bg fill - we
-      // own the entire client rect here. Fill it with g_bkg_color
-      // (black by default, like the original Pong). Game elements
-      // (paddles, score, ball, state text) will be layered on top in
-      // later passes.
+      // Double-buffered paint. WM_ERASEBKGND returned TRUE so Windows
+      // skipped its bg fill - we own the entire client rect. Every
+      // Draw* call targets g_hdcMem (the back buffer); we BitBlt only
+      // the dirty rect (ps.rcPaint) to the screen at the end. The full
+      // back-buffer redraw on every WM_PAINT means we don't have to do
+      // per-element dirty tracking inside the Draw* helpers, and the
+      // user sees a single atomic frame instead of the intermediate
+      // bg-fill / divider / center-line / displays / rackets / ball
+      // states flickering past on screen.
       PAINTSTRUCT ps;
       HDC hdc = BeginPaint(hWnd, &ps);
       RECT client;
       GetClientRect(hWnd, &client);
-      FillRectWithColor(hdc, client, g_bkg_color);
-      DrawSpawnCircle(hdc, client);
-      DrawPlayfieldDivider(hdc, client);
-      DrawMessageArea(hdc, client);
-      DrawCenterLine(hdc, client);
-      DrawSegmentDisplays(hdc, client);
-      DrawRackets(hdc, client);
-      DrawBall(hdc, client);
+      const int width  = client.right - client.left;
+      const int height = client.bottom - client.top;
+      if (width > 0 && height > 0 && EnsureBackBuffer(hdc, width, height)) {
+        FillRectWithColor(g_hdcMem, client, g_bkg_color);
+        DrawSpawnCircle(g_hdcMem, client);
+        DrawPlayfieldDivider(g_hdcMem, client);
+        DrawMessageArea(g_hdcMem, client);
+        DrawCenterLine(g_hdcMem, client);
+        DrawSegmentDisplays(g_hdcMem, client);
+        DrawRackets(g_hdcMem, client);
+        DrawBall(g_hdcMem, client);
+        BitBlt(hdc, ps.rcPaint.left, ps.rcPaint.top,
+               ps.rcPaint.right  - ps.rcPaint.left,
+               ps.rcPaint.bottom - ps.rcPaint.top,
+               g_hdcMem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
+      }
       EndPaint(hWnd, &ps);
       break;
     }
@@ -645,6 +723,10 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       // hidden-notify window is destroyed.
       StopPlayWav();
       ShutDownBgm();
+      // Release the double-buffer GDI handles. Done after the audio
+      // shutdown above (audio doesn't need GDI; the order is just
+      // "stop the noisy stuff first").
+      DestroyBackBuffer();
       PostQuitMessage(0);
       break;
     case WM_NCDESTROY:
