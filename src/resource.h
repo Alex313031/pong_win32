@@ -38,6 +38,9 @@
 
 #define IDM_CEXIT                   216
 
+#define IDM_ROUNDBALL               217
+#define IDM_CONSOLE                 218
+
 // Timers
 #define TIMER_GAME                  300 // Timer ID for game logic/painting
 
@@ -53,6 +56,13 @@
 // system / common-control message). Used to defer work that mustn't run
 // inside WM_CREATE — see WM_APP_AUTOPLAY usage in main.cc.
 #define WM_APP_AUTOPLAY             (WM_APP + 0)
+// Player just hit kWonRoundPoints. Game pauses, banner switches to
+// kWonMsg, difficulty advances one step (capped at Hard). User unpauses
+// with F3 / Space to start the next round (scores reset on unpause).
+#define WM_APP_ROUND_WON            (WM_APP + 1)
+// Machine just hit kWonRoundPoints. Game stops, banner switches to
+// kLoseMsg, positions / scores reset; user presses F2 for a fresh game.
+#define WM_APP_GAME_LOST            (WM_APP + 2)
 
 // For resources to be loaded without an ID from the system.
 #ifndef IDC_STATIC

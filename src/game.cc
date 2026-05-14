@@ -6,6 +6,7 @@
 #include "globals.h"
 #include "resource.h"
 #include "sound.h"
+#include "strings.h"
 #include "utils.h"
 
 // Pause toggle (declared in globals.h). Lives here because TickRackets /
@@ -607,7 +608,20 @@ void DrawMessageArea(HDC hdc, const RECT& client) {
   HBRUSH hbr = CreateSolidBrush(kMessageAreaColor);
   FrameRect(hdc, &rect, hbr);
   DeleteObject(hbr);
-  if (g_message.empty()) {
+  // Pick the text to render: an explicit SetMessage value wins over the
+  // dynamic "currently playing" fallback. The fallback only fires when
+  // play is actually happening - on the welcome / paused / new-game /
+  // round-won / lost banners g_message is non-empty so we never overwrite
+  // those with coords.
+  std::wstring text_to_render = g_message;
+  if (text_to_render.empty() && g_running && !g_paused) {
+    text_to_render = kPlayingMsg;
+    text_to_render += L"x";
+    text_to_render += std::to_wstring(static_cast<int>(std::floor(g_ball_x)));
+    text_to_render += L" y";
+    text_to_render += std::to_wstring(static_cast<int>(std::floor(g_ball_y)));
+  }
+  if (text_to_render.empty()) {
     return;
   }
   // Render the message centred inside the frame in MS Sans Serif italic at
@@ -626,13 +640,14 @@ void DrawMessageArea(HDC hdc, const RECT& client) {
   // DT_CENTER continues to centre each individual line horizontally.
   constexpr UINT kDrawFlags = DT_CENTER | DT_NOPREFIX;
   RECT measure_rect = text_rect;
-  DrawTextW(hdc, g_message.c_str(), -1, &measure_rect, kDrawFlags | DT_CALCRECT);
+  DrawTextW(hdc, text_to_render.c_str(), -1, &measure_rect,
+            kDrawFlags | DT_CALCRECT);
   const int text_h = measure_rect.bottom - measure_rect.top;
   const int slot_h = text_rect.bottom - text_rect.top;
   if (slot_h > text_h) {
     text_rect.top += (slot_h - text_h) / 2;
   }
-  DrawTextW(hdc, g_message.c_str(), -1, &text_rect, kDrawFlags);
+  DrawTextW(hdc, text_to_render.c_str(), -1, &text_rect, kDrawFlags);
   SetTextColor(hdc, oldFg);
   SetBkMode(hdc, oldBk);
   SelectObject(hdc, oldFnt);
@@ -697,6 +712,10 @@ void SetDifficulty(Difficulty difficulty) {
   // is read each frame against g_ai_history - no per-instance state to
   // rescale.
   g_difficulty = difficulty;
+}
+
+Difficulty CurrentDifficulty() {
+  return g_difficulty;
 }
 
 void ResetForNewGame(HWND hWnd) {
@@ -948,6 +967,15 @@ void TickBall(HWND hWnd, float dt) {
     // so a tight dirty rect would have to span half the playfield - cheaper
     // (and simpler) to just repaint everything for the one frame.
     InvalidateRect(hWnd, nullptr, FALSE);
+    // Round / game end. WM_APP_* fires after this tick returns so the
+    // updated score is already painted; main.cc's handler then pauses
+    // or stops the game, switches the banner, and (for round wins)
+    // advances the difficulty. PostMessage rather than direct calls
+    // keeps menu / pause-state mutations out of the tick path.
+    if (next_score >= kWonRoundPoints) {
+      PostMessageW(hWnd, player_scored ? WM_APP_ROUND_WON : WM_APP_GAME_LOST,
+                   0, 0);
+    }
     return;
   }
 
@@ -964,6 +992,15 @@ void TickBall(HWND hWnd, float dt) {
   rect.right  = static_cast<int>(std::ceil(max_x + kBallSize));
   rect.bottom = static_cast<int>(std::ceil(max_y + kBallSize));
   InvalidateRect(hWnd, &rect, FALSE);
+  // The "Playing... Ball Position: x{x} y{y}" fallback in DrawMessageArea
+  // changes every frame the ball moves, so push the message rect onto the
+  // dirty list too while it's the active banner. With an explicit message
+  // (paused / round-won / etc.) the text is static and SetMessage's own
+  // invalidate is enough - skip the per-frame churn.
+  if (g_message.empty()) {
+    RECT msg_rect = MessageAreaRect(cxClient);
+    InvalidateRect(hWnd, &msg_rect, FALSE);
+  }
 }
 
 void DrawBall(HDC hdc, const RECT& client) {

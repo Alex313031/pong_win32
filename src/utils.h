@@ -4,6 +4,10 @@
 #include "constants.h"
 #include "framework.h"
 
+// clang-format off
+#include <logging.h>
+// clang-format on
+
 // Typedef for accessing undocumented RtlGetNtVersionNumbers in ntdll.dll
 typedef void(WINAPI* RtlGetNtVersionNumbers_t)(DWORD* pNtMajorVersion,
                                                DWORD* pNtMinorVersion,

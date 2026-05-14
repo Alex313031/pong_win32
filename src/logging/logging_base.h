@@ -1,10 +1,9 @@
-#ifndef PONGWIN32_VERSION_H_
-#define PONGWIN32_VERSION_H_
+#ifndef MINI_LOGGER_LOGGING_BASE_H_
+#define MINI_LOGGER_LOGGING_BASE_H_
 
-// This file is for specifying the target windows version, as well as application
-// version constants.
+// NOTE: This is a precompiled header file (PCH)
 
-// We need to define _UNICODE and UNICODE for TCHAR
+// clang-format off
 #ifndef UNICODE
  #define UNICODE
 #endif
@@ -51,8 +50,6 @@
  #include <SDKDDKVer.h> // Doesn't exist in MinGW
 #endif
 
-// clang-format off: Version DEFINES left alone
-
 // Macro to convert to string
 #if !defined(_STRINGIZER_)
  #define _STRINGIZER_
@@ -68,34 +65,32 @@
 
 // These next few lines are where we control version number and copyright year
 // Adhere to semver > semver.org
-#define MAJOR_VERSION 0
-#define MINOR_VERSION 1
-#define BUILD_VERSION 5
+#define LOGGER_MAJOR_VERSION 0
+#define LOGGER_MINOR_VERSION 2
+#define LOGGER_BUILD_VERSION 4
 
-// String constants
-#define VERSION_STRING _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION)
+#define LOGGER_VERSION_STRING _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION)
 
-#define APP_NAME        L"Pong Win32"   // Name of the App
-#define MAIN_WNDCLASS   L"PongWin32" // Our main Window Class unique name
+#define _LIBNAME L"HawkLogger"
 
-#define COMMENTS        L"https://github.com/Alex313031/pong_win32" // Project GitHub URL
-#define COMPANYNAME     L"Alex313031" // My developer name
-#define FILE_DESCRIPT   L"Pong Game Windows Implementation" // File description
-#define INTERNAL_NAME   L"pong_win32" // "Internal" name, also used for .exe name
-#define ORIG_FILENAME   INTERNAL_NAME L".exe" // Generated .exe file name
-#define PRODUCT_NAME    APP_NAME // Product name
-#define TRADEMARKS      L"BSD-3" // License
-#define LEGAL_COPYRIGHT L"\251 2026 Alex313031" // \251 is the © symbol
-
-#define ABOUT_TITLE     L"About " APP_NAME
-#define ABOUT_CONTENT   L"pong_win32"
-#define ABOUT_VERSION   L"Version " VERSION_STRING
-#define ABOUT_COPYRIGHT LEGAL_COPYRIGHT
-
-#ifndef _PACKVERSION
- #define _PACKVERSION(major,minor) MAKELONG((minor), ((major) << 8))
+#if __cplusplus < 201103L || !defined(__cplusplus)
+ #error _LIBNAME only supports C++11 and above
 #endif
 
-// clang-format on: Done with version DEFINES
+#include <windows.h> // Main Windows include
+#include <wincon.h>  // Console API functions
+#include <tchar.h>   // Wide/Short characters
+// clang-format on
 
-#endif // PONGWIN32_VERSION_H_
+// For strings, writing to console/file, etc.
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <sstream>
+#include <string>
+
+namespace logging {
+  extern bool logging_initialized; // Global boolean for safety
+}
+
+#endif // MINI_LOGGER_LOGGING_BASE_H_

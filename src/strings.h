@@ -5,7 +5,7 @@
 
 // Strings to print in game message area
 
-inline const std::wstring kLoseMsg = L"You Lose... \nPress F2 to Play Again.";
+inline const std::wstring kLoseMsg = L"You Lose... \nPress Space to Play Again.";
 
 inline const std::wstring kWonMsg = L"You Win this Round! \nPress Space to Continue.";
 
@@ -18,6 +18,8 @@ inline const std::wstring kToggleMsg = L"Toggled Players";
 inline const std::wstring kMuteMsg = L"Muted Sound \nPress M to UnMute";
 
 inline const std::wstring kUnMuteMsg = L"UnMuted Sound";
+
+inline const std::wstring kPlayingMsg = L"Playing against machine. Ball Position: ";
 
 // Adjacent literal concatenation (like ABOUT_VERSION in version.h), not
 // operator+ - the latter would be pointer-arithmetic on two wchar_t*.

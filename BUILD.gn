@@ -3,6 +3,7 @@
 executable("pong_win32") {
   configs += [
     ":pong_win32_config",
+    "src/logging:gamelogger_config",
   ]
   precompiled_header = "src/framework.h"
   precompiled_source = "src/pch.cc"
@@ -23,7 +24,10 @@ executable("pong_win32") {
     "src/utils.h",
     "src/version.h",
   ]
-  deps = [ ":pong_c" ]
+  deps = [
+    ":pong_c",
+    "src/logging:gamelogger",
+  ]
 }
 
 executable("pong_c") {

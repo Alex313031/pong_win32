@@ -106,6 +106,11 @@ void SetSpeed(Speed speed);
 enum class Difficulty { Easy, Med, Hard };
 void SetDifficulty(Difficulty difficulty);
 
+// Reads the current difficulty setting. Used by main.cc's round-won
+// handler to compute the "next" level (Easy -> Med -> Hard, capped at
+// Hard) and refresh the menu radio in one step.
+Difficulty CurrentDifficulty();
+
 // Resets the playfield to its "new match" state: rackets centred, ball
 // re-spawned at centre with a fresh random launch vector, scores zeroed.
 // The ball won't actually move until g_running flips true (typically via

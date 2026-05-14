@@ -33,6 +33,14 @@ static bool s_was_minimized = false;
 // require F3 / Space to resume.
 static bool s_first_start = true;
 
+// Set to true by the WM_APP_ROUND_WON handler. While true the game is
+// paused on the kWonMsg banner; the IDM_PAUSE / F3 handler treats the
+// next unpause as "start the next round" rather than a normal resume -
+// it resets scores and re-launches the ball. Cleared on any new-game
+// start, the next-round resume, or a game-lost reset so the flag never
+// outlives the round it was set for.
+static bool s_round_pending = false;
+
 // Background colours. g_bkg_color is the solid-fill for the playfield and
 // the bottom of any vertical gradient; g_top_color is the top of a vertical
 // gradient (currently the message-area backdrop, available for a future
@@ -543,6 +551,39 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       break;
     case WM_APP_AUTOPLAY:
       break;
+    case WM_APP_ROUND_WON: {
+      // Player just hit kWonRoundPoints. Freeze the field on the winning
+      // score by pausing, swap to the kWonMsg banner, and bump the
+      // difficulty one notch (Easy -> Med -> Hard, capped). The
+      // s_round_pending flag tells the next IDM_PAUSE / F3 to treat the
+      // unpause as "start next round" - it resets scores and respawns
+      // the ball.
+      SetPaused(true);
+      SetMessage(kWonMsg);
+      const Difficulty cur = CurrentDifficulty();
+      if (cur == Difficulty::Easy) {
+        ApplyDifficultySelection(hWnd, Difficulty::Med);
+      } else if (cur == Difficulty::Med) {
+        ApplyDifficultySelection(hWnd, Difficulty::Hard);
+      }
+      s_round_pending = true;
+      SyncPauseMenuCheck(hWnd);
+      break;
+    }
+    case WM_APP_GAME_LOST:
+      // Machine just hit kWonRoundPoints. Hard stop + reset, banner
+      // switches to kLoseMsg ("Press F2 to Play Again"). F2 will then
+      // trigger the standard IDM_NEWGAME flow which overwrites the
+      // banner with kNewGameMsg. Difficulty is *not* touched - whatever
+      // level the player lost at is where they restart.
+      g_running       = false;
+      s_first_start   = false;
+      s_round_pending = false;
+      SetPaused(false);
+      ResetForNewGame(hWnd);
+      SetMessage(kLoseMsg);
+      SyncPauseMenuCheck(hWnd);
+      break;
     case WM_ERASEBKGND:
       // Returning TRUE tells Windows we have handled background erasing
       // ourselves, suppressing the default white fill. We do our own filling
@@ -645,10 +686,12 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
             // won't actually move until g_running flips true on the next F3.
             // Pause flag also gets cleared so a previously-paused match
             // doesn't carry over into the fresh one. We also retire the
-            // welcome-screen auto-start: a New Game banner needs an explicit
-            // F3 to start play, never an arrow key.
-            g_running     = false;
-            s_first_start = false;
+            // welcome-screen auto-start and any pending round-end resume:
+            // a New Game banner needs an explicit F3 to start play, never
+            // an arrow key.
+            g_running       = false;
+            s_first_start   = false;
+            s_round_pending = false;
             SetPaused(false);
             ResetForNewGame(hWnd);
             SetMessage(kNewGameMsg);
@@ -656,16 +699,26 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           SyncPauseMenuCheck(hWnd);
           break;
         case IDM_PAUSE:
-          // Two roles for F3 / IDM_PAUSE depending on the run state:
+          // Three roles for F3 / IDM_PAUSE depending on the run state:
           //   * Game stopped (!g_running): act as "start" - flip g_running
           //     on and clear the banner. g_paused is left alone since this
           //     transition is "stopped to playing", not a pause toggle.
-          //   * Game running: standard pause toggle - flip g_paused.
-          // Either way, SyncPauseMenuCheck folds the new state back into
-          // the menu's CHECKED indicator.
+          //   * Round-end pending (kWonMsg up, game paused): start the
+          //     next round - ResetForNewGame zeros scores and re-launches
+          //     the ball, then we unpause. Difficulty was already bumped
+          //     by the WM_APP_ROUND_WON handler.
+          //   * Otherwise (game running, normal pause toggle): flip
+          //     g_paused.
+          // SyncPauseMenuCheck folds the new state back into the menu's
+          // CHECKED indicator at the end.
           if (!g_running) {
             g_running     = true;
             s_first_start = false;
+            SetMessage(std::wstring());
+          } else if (s_round_pending) {
+            s_round_pending = false;
+            ResetForNewGame(hWnd);
+            SetPaused(false);
             SetMessage(std::wstring());
           } else {
             SetPaused(!g_paused);

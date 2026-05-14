@@ -101,6 +101,11 @@ BEGIN
             MENUITEM "&Aggresive", IDM_HARD
         END
     END
+    POPUP "&Dev"
+    BEGIN
+        MENUITEM "&Rounded Ball",   IDM_ROUNDBALL
+        MENUITEM "Toggle &Console", IDM_CONSOLE
+    END
     POPUP "&About"
     BEGIN
         MENUITEM "&Help",    IDM_HELP
