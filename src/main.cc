@@ -182,6 +182,47 @@ static bool ToggleMenuCheck(HWND hWnd, UINT id) {
   return now_checked;
 }
 
+// Maps a Speed enum to the matching menu command ID. Used in both the
+// .rc default load path and the WM_COMMAND handlers to keep the radio
+// item in sync with the underlying state.
+static UINT SpeedMenuId(Speed speed) {
+  switch (speed) {
+    case Speed::Low:  return IDM_SPEED_LOW;
+    case Speed::High: return IDM_SPEED_HIGH;
+    case Speed::Med:
+    default:          return IDM_SPEED_MED;
+  }
+}
+
+static UINT DifficultyMenuId(Difficulty difficulty) {
+  switch (difficulty) {
+    case Difficulty::Easy: return IDM_EASY;
+    case Difficulty::Hard: return IDM_HARD;
+    case Difficulty::Med:
+    default:               return IDM_MED;
+  }
+}
+
+// Applies a Speed selection: pushes it into game.cc and flips the radio
+// check on the matching menu item (which also un-checks the other two).
+static void ApplySpeedSelection(HWND hWnd, Speed speed) {
+  SetSpeed(speed);
+  HMENU menu = GetMenu(hWnd);
+  if (menu != nullptr) {
+    CheckMenuRadioItem(menu, IDM_SPEED_LOW, IDM_SPEED_HIGH,
+                       SpeedMenuId(speed), MF_BYCOMMAND);
+  }
+}
+
+static void ApplyDifficultySelection(HWND hWnd, Difficulty difficulty) {
+  SetDifficulty(difficulty);
+  HMENU menu = GetMenu(hWnd);
+  if (menu != nullptr) {
+    CheckMenuRadioItem(menu, IDM_EASY, IDM_HARD,
+                       DifficultyMenuId(difficulty), MF_BYCOMMAND);
+  }
+}
+
 // Reads every menu item whose CHECKED state is wired to a runtime setting
 // and applies it before the first frame. Add new ID->setter pairs here as
 // settings come online.
@@ -193,6 +234,23 @@ static void ApplyMenuDefaults(HWND hWnd) {
   SetPaused(IsMenuChecked(menu, IDM_PAUSE));
   SetPlayerOnLeft(IsMenuChecked(menu, IDM_PLAYER));
   SetSoundOn(IsMenuChecked(menu, IDM_SOUND));
+  // Speed / difficulty are radio groups. If no item in a group has CHECKED
+  // set in the .rc, default to Med. ApplySpeedSelection/...Difficulty also
+  // refresh the radio check so the menu visually matches the runtime state.
+  Speed speed = Speed::Med;
+  if (IsMenuChecked(menu, IDM_SPEED_LOW)) {
+    speed = Speed::Low;
+  } else if (IsMenuChecked(menu, IDM_SPEED_HIGH)) {
+    speed = Speed::High;
+  }
+  ApplySpeedSelection(hWnd, speed);
+  Difficulty difficulty = Difficulty::Med;
+  if (IsMenuChecked(menu, IDM_EASY)) {
+    difficulty = Difficulty::Easy;
+  } else if (IsMenuChecked(menu, IDM_HARD)) {
+    difficulty = Difficulty::Hard;
+  }
+  ApplyDifficultySelection(hWnd, difficulty);
 }
 
 // Drives the Pause menu's CHECKED state from the actual run state. We treat
@@ -475,6 +533,11 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
     case WM_COMMAND: {
       const int command = LOWORD(wParam);
       switch (command) {
+        case IDM_CEXIT:
+          if (ConfirmExit(hWnd)) {
+            ShutDownApp();
+          }
+          break;
         case IDM_EXIT:
           ShutDownApp();
           break;
@@ -493,18 +556,20 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           break;
         }
         case IDM_NEWGAME:
-          // Stop the game, reset positions / scores, and surface the new-
-          // game banner. The ball is spawned with a random velocity but
-          // won't actually move until g_running flips true on the next F3.
-          // Pause flag also gets cleared so a previously-paused match
-          // doesn't carry over into the fresh one. We also retire the
-          // welcome-screen auto-start: a New Game banner needs an explicit
-          // F3 to start play, never an arrow key.
-          g_running     = false;
-          s_first_start = false;
-          SetPaused(false);
-          ResetForNewGame(hWnd);
-          SetMessage(kNewGameMsg);
+          if (ConfirmNewGame(hWnd)) {
+            // Stop the game, reset positions / scores, and surface the new-
+            // game banner. The ball is spawned with a random velocity but
+            // won't actually move until g_running flips true on the next F3.
+            // Pause flag also gets cleared so a previously-paused match
+            // doesn't carry over into the fresh one. We also retire the
+            // welcome-screen auto-start: a New Game banner needs an explicit
+            // F3 to start play, never an arrow key.
+            g_running     = false;
+            s_first_start = false;
+            SetPaused(false);
+            ResetForNewGame(hWnd);
+            SetMessage(kNewGameMsg);
+          }
           SyncPauseMenuCheck(hWnd);
           break;
         case IDM_PAUSE:
@@ -542,6 +607,15 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           SetMessage(now_on ? kUnMuteMsg : kMuteMsg);
           break;
         }
+        // Speed group (radio). ApplySpeedSelection both updates the
+        // engine and switches the radio dot to the chosen item.
+        case IDM_SPEED_LOW:  ApplySpeedSelection(hWnd, Speed::Low);  break;
+        case IDM_SPEED_MED:  ApplySpeedSelection(hWnd, Speed::Med);  break;
+        case IDM_SPEED_HIGH: ApplySpeedSelection(hWnd, Speed::High); break;
+        // Difficulty group (radio). Only nudges the CPU racket speed.
+        case IDM_EASY: ApplyDifficultySelection(hWnd, Difficulty::Easy); break;
+        case IDM_MED:  ApplyDifficultySelection(hWnd, Difficulty::Med);  break;
+        case IDM_HARD: ApplyDifficultySelection(hWnd, Difficulty::Hard); break;
         default:
           return DefWindowProcW(hWnd, message, wParam, lParam);
       }

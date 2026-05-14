@@ -114,12 +114,12 @@ IDR_MAIN ACCELERATORS
 BEGIN
     "?",       IDM_ABOUT,   ASCII,   ALT      // '?' key  - About
     VK_OEM_2,  IDM_ABOUT,   VIRTKEY, ALT      // '/' key  - About
-    0x51,      IDM_EXIT,    VIRTKEY, CONTROL  // 'Ctrl+Q' - Exit
-    VK_ESCAPE, IDM_EXIT,    VIRTKEY, NOINVERT // 'Esc'    - Exit
+    0x51,      IDM_CEXIT,   VIRTKEY, CONTROL  // 'Ctrl+Q' - Exit
+    VK_ESCAPE, IDM_CEXIT,   VIRTKEY, NOINVERT // 'Esc'    - Exit
     VK_F2,     IDM_NEWGAME, VIRTKEY, NOINVERT // 'F2' key - New Game
     VK_SPACE,  IDM_PAUSE,   VIRTKEY, NOINVERT // 'Space'  - Pause
     VK_F3,     IDM_PAUSE,   VIRTKEY, NOINVERT // 'F3' key - Pause
-    0x4D,      IDM_SOUND,   VIRTKEY, NOINVERT // 'M' key  - Toggle Sound
+    0x4D,      IDM_SOUND,   VIRTKEY, NOINVERT // 'M' key  - Toggle Sounds
 END
 
 // About Dialog Box

@@ -34,6 +34,31 @@ std::wstring g_message;
 // WM_TIMER tick where it is non-zero does the centering.
 bool g_player_on_left = false;
 
+// Speed / difficulty settings. Defaults to Med so the unconfigured app
+// matches the raw *PxPerSec constants. SpeedMult() / DifficultyMult()
+// translate these to floating multipliers consumed by SpawnBall, the
+// racket ticks, and the ball tick.
+Speed g_speed           = Speed::Med;
+Difficulty g_difficulty = Difficulty::Med;
+
+float SpeedMult() {
+  switch (g_speed) {
+    case Speed::Low:  return kSpeedMultLow;
+    case Speed::High: return kSpeedMultHigh;
+    case Speed::Med:
+    default:          return kSpeedMultMed;
+  }
+}
+
+float DifficultyMult() {
+  switch (g_difficulty) {
+    case Difficulty::Easy: return kDifficultyMultEasy;
+    case Difficulty::Hard: return kDifficultyMultHard;
+    case Difficulty::Med:
+    default:               return kDifficultyMultMed;
+  }
+}
+
 // Racket Y coords are float so per-frame "speed * dt" deltas accumulate
 // sub-pixel motion correctly across frames; we floor() when building the
 // integer draw rect. Negative still serves as the "not yet centred"
@@ -321,7 +346,7 @@ void TickPlayerRacket(HWND hWnd, float dt) {
     return;
   }
   float* racket_y  = g_player_on_left ? &g_left_racket_y : &g_right_racket_y;
-  const float step = kRacketSpeedPxPerSec * dt;
+  const float step = kRacketSpeedPxPerSec * SpeedMult() * dt;
   float target     = *racket_y;
   if (up) {
     target -= step;
@@ -347,7 +372,9 @@ void TickMachineRacket(HWND hWnd, float dt) {
   const float ball_cy   = g_ball_y + 0.5f * kBallSize;
   const float racket_cy = *racket_y + 0.5f * kRacketH;
   const float diff      = ball_cy - racket_cy;
-  const float step      = kMachineRacketSpeedPxPerSec * dt;
+  // Speed scales everything; difficulty stacks on top for the machine only.
+  const float step      = kMachineRacketSpeedPxPerSec * SpeedMult() *
+                          DifficultyMult() * dt;
   const float dead_zone = 0.5f * step;
   if (diff > dead_zone) {
     MoveRacket(hWnd, racket_y, machine_on_left, *racket_y + step);
@@ -373,8 +400,9 @@ void SpawnBall() {
   // horizontal and vertical sign so all four quadrants are reachable.
   const float sx = (g_rng() & 1u) ? 1.0f : -1.0f;
   const float sy = (g_rng() & 1u) ? 1.0f : -1.0f;
-  g_ball_dx      = sx * kBallSpeedPxPerSec * std::cos(angle);
-  g_ball_dy      = sy * kBallSpeedPxPerSec * std::sin(angle);
+  const float ball_speed = kBallSpeedPxPerSec * SpeedMult();
+  g_ball_dx              = sx * ball_speed * std::cos(angle);
+  g_ball_dy              = sy * ball_speed * std::sin(angle);
   g_ball_spawned = true;
 }
 
@@ -574,6 +602,30 @@ void SetSoundOn(bool on) {
   // themselves on g_sound_on inside PlayHit so they don't need anything
   // more here.
   SyncBgm();
+}
+
+void SetSpeed(Speed speed) {
+  if (speed == g_speed) {
+    return;
+  }
+  // Racket and (future) ball-spawn calls compute step * SpeedMult() each
+  // frame so they pick up the new value automatically. The *in-flight*
+  // ball has a velocity baked in from the previous spawn though, so we
+  // rescale (dx, dy) by the ratio so a mid-game speed change is felt
+  // immediately instead of only on the next spawn.
+  const float old_mult = SpeedMult();
+  g_speed              = speed;
+  if (g_ball_spawned && old_mult != 0.0f) {
+    const float ratio = SpeedMult() / old_mult;
+    g_ball_dx *= ratio;
+    g_ball_dy *= ratio;
+  }
+}
+
+void SetDifficulty(Difficulty difficulty) {
+  // Difficulty only feeds into TickMachineRacket via DifficultyMult(),
+  // which is read each frame - no per-instance state to rescale.
+  g_difficulty = difficulty;
 }
 
 void ResetForNewGame(HWND hWnd) {
@@ -849,4 +901,19 @@ void DrawBall(HDC hdc, const RECT& client) {
   HBRUSH hbr = CreateSolidBrush(kBallColor);
   FillRect(hdc, &rect, hbr);
   DeleteObject(hbr);
+}
+
+bool ConfirmNewGame(HWND hWnd) {
+  const int new_game_dialog =
+      MessageBoxW(hWnd, L"Are you sure you want to start a new game?",
+                  L"Confirm New Game", MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON1);
+  return new_game_dialog == IDYES;
+}
+
+// Confirmation dialog for exit
+bool ConfirmExit(HWND hWnd) {
+  const int exit_dialog =
+      MessageBoxW(hWnd, L"Are you sure you want to Exit?",
+                  L"Confirm Exit Game", MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2);
+  return exit_dialog == IDYES;
 }

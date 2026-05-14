@@ -84,6 +84,21 @@ void SetPaused(bool paused);
 // CHECKED state in the .rc.
 void SetSoundOn(bool on);
 
+// Game-wide speed setting. Med == the *PxPerSec constants unchanged;
+// Low drops everything by a third, High raises it by a third. Affects
+// ball, player racket, and machine racket together. Setting a new value
+// rescales the in-flight ball's velocity so a mid-game speed change
+// takes effect immediately rather than only on the next spawn.
+enum class Speed { Low, Med, High };
+void SetSpeed(Speed speed);
+
+// CPU difficulty setting. Med == the kMachineRacketSpeedPxPerSec constant
+// unchanged; Easy drops the machine racket by a third, Hard raises it by
+// a third. Multiplied *on top of* the Speed setting (so High + Hard
+// stacks). Player racket and ball are untouched.
+enum class Difficulty { Easy, Med, Hard };
+void SetDifficulty(Difficulty difficulty);
+
 // Resets the playfield to its "new match" state: rackets centred, ball
 // re-spawned at centre with a fresh random launch vector, scores zeroed.
 // The ball won't actually move until g_running flips true (typically via
@@ -119,5 +134,11 @@ float NextFrameDelta();
 
 // Paints the ball onto hdc. Called from WM_PAINT after the rackets.
 void DrawBall(HDC hdc, const RECT& client);
+
+// Confirmation dialog for new game
+bool ConfirmNewGame(HWND hWnd);
+
+// Confirmation dialog for exit
+bool ConfirmExit(HWND hWnd);
 
 #endif // PONGWIN32_GAME_H_

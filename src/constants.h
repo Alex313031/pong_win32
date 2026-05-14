@@ -158,6 +158,23 @@ constexpr float kRacketSpeedPxPerSec        = 400.0f;
 constexpr float kMachineRacketSpeedPxPerSec = 200.0f;
 
 // ---------------------------------------------------------------------------
+// Speed and difficulty multipliers.
+//
+// Med / Med matches the *PxPerSec constants above unchanged. Low / Easy
+// drop a third off (multiplier 2/3), High / Hard add a third (4/3).
+// `Speed` scales the ball, the player's racket, and the machine's
+// racket; `Difficulty` scales only the machine's racket and stacks on
+// top of the speed multiplier - so picking Hard while keeping Med speed
+// only sharpens the CPU, while picking High speed pulls everything
+// upward together (machine included).
+constexpr float kSpeedMultLow       = 2.0f / 3.0f;
+constexpr float kSpeedMultMed       = 1.0f;
+constexpr float kSpeedMultHigh      = 4.0f / 3.0f;
+constexpr float kDifficultyMultEasy = 2.0f / 3.0f;
+constexpr float kDifficultyMultMed  = 1.0f;
+constexpr float kDifficultyMultHard = 4.0f / 3.0f;
+
+// ---------------------------------------------------------------------------
 // Spawn circle.
 //
 // Yellow 1-px outline at the ball's spawn point, diameter == kRacketH.

@@ -36,6 +36,8 @@
 #define IDM_MED                     214
 #define IDM_HARD                    215
 
+#define IDM_CEXIT                   216
+
 // Timers
 #define TIMER_GAME                  300 // Timer ID for game logic/painting
 
