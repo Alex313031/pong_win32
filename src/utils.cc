@@ -5,7 +5,6 @@
 #include "globals.h"
 #include "resource.h"
 
-
 // Opens a system Save As dialog and writes a snapshot of the window's
 // client area to a 32-bit BMP file at the path the user chose. On
 // success, if outSavedPath is non-null, the chosen path is written there
@@ -86,9 +85,8 @@ bool SaveClientBitmap(HWND hWnd, std::wstring* outSavedPath) {
   bi.biCompression    = BI_RGB;
   bi.biSizeImage      = static_cast<DWORD>(width * height * 4);
   std::vector<BYTE> pixels(bi.biSizeImage);
-  const int scan_lines =
-      GetDIBits(hdc_snap, hbm_snap, 0, static_cast<UINT>(height), pixels.data(),
-                reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
+  const int scan_lines = GetDIBits(hdc_snap, hbm_snap, 0, static_cast<UINT>(height), pixels.data(),
+                                   reinterpret_cast<BITMAPINFO*>(&bi), DIB_RGB_COLORS);
 
   // Drop the snapshot's GDI handles before file I/O so we don't hold them
   // across a slow CreateFile / WriteFile.
@@ -129,9 +127,8 @@ HFONT GetFont(int size, std::wstring font, bool italic) {
   // looking jagged - the rest of the app embraces a retro aliased
   // look but 72-px text without smoothing is unreadable.
   return CreateFontW(-size, 0, 0, 0, FW_NORMAL, italic ? TRUE : FALSE, FALSE, FALSE,
-                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                     ANTIALIASED_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-                     font.c_str());
+                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                     DEFAULT_PITCH | FF_DONTCARE, font.c_str());
 }
 
 bool FillRectWithColor(HDC hdc, const RECT& rc, COLORREF color) {
@@ -164,10 +161,7 @@ void FillPolygon(HDC hdc, const POINT* pts, int count, COLORREF color) {
   DeleteObject(hpen);
 }
 
-void FillRectWithGradient(HDC hdc,
-                          const RECT& rc,
-                          COLORREF topColor,
-                          COLORREF bottomColor) {
+void FillRectWithGradient(HDC hdc, const RECT& rc, COLORREF topColor, COLORREF bottomColor) {
   if (hdc == nullptr) {
     return;
   }
@@ -187,10 +181,10 @@ void FillRectWithGradient(HDC hdc,
   const double inv_span = (height > 1) ? 1.0 / (height - 1) : 0.0;
   for (int row_y = rc.top; row_y < rc.bottom; ++row_y) {
     const double frac = (row_y - rc.top) * inv_span;
-    const int red   = static_cast<int>(std::lround(r1 + (r2 - r1) * frac));
-    const int green = static_cast<int>(std::lround(g1 + (g2 - g1) * frac));
-    const int blue  = static_cast<int>(std::lround(b1 + (b2 - b1) * frac));
-    HBRUSH hBr = CreateSolidBrush(RGB(red, green, blue));
+    const int red     = static_cast<int>(std::lround(r1 + (r2 - r1) * frac));
+    const int green   = static_cast<int>(std::lround(g1 + (g2 - g1) * frac));
+    const int blue    = static_cast<int>(std::lround(b1 + (b2 - b1) * frac));
+    HBRUSH hBr        = CreateSolidBrush(RGB(red, green, blue));
     if (hBr == nullptr) {
       continue;
     }

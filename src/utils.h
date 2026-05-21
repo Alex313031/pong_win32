@@ -47,10 +47,7 @@ void FillPolygon(HDC hdc, const POINT* pts, int count, COLORREF color);
 // One row per pixel - simple and avoids needing GdiGradientFill /
 // msimg32. Slightly wasteful (one brush per row) but trivial at the
 // scales we draw at.
-void FillRectWithGradient(HDC hdc,
-                          const RECT& rc,
-                          COLORREF topColor,
-                          COLORREF bottomColor);
+void FillRectWithGradient(HDC hdc, const RECT& rc, COLORREF topColor, COLORREF bottomColor);
 
 // Gets the current side by side directory, regardless of where .exe is started from
 const std::wstring GetExeDir();

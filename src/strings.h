@@ -23,6 +23,7 @@ inline const std::wstring kPlayingMsg = L"Playing against machine. Ball Position
 
 // Adjacent literal concatenation (like ABOUT_VERSION in version.h), not
 // operator+ - the latter would be pointer-arithmetic on two wchar_t*.
-inline const std::wstring kReadyMsg = L"Welcome to " APP_NAME L" " VERSION_STRING L"\n Press Space to Play";
+inline const std::wstring kReadyMsg =
+    L"Welcome to " APP_NAME L" " VERSION_STRING L"\n Press Space to Play";
 
 #endif // PONGWIN32_STRINGS_H_

@@ -63,11 +63,11 @@ volatile bool g_running = false;
 //
 // Declared extern in utils.h so SaveClientBitmap (in utils.cc) can read
 // from it without having to thread a parameter through every call site.
-HDC g_hdcMem            = nullptr;
-HBITMAP g_hbmMem        = nullptr;
+HDC g_hdcMem                 = nullptr;
+HBITMAP g_hbmMem             = nullptr;
 static HBITMAP s_hbm_default = nullptr; // default 1x1 bitmap, restored on destroy
-static int s_back_w     = 0;
-static int s_back_h     = 0;
+static int s_back_w          = 0;
+static int s_back_h          = 0;
 
 bool g_debug_mode = is_debug;
 
@@ -110,8 +110,8 @@ bool RegisterWndClass(HINSTANCE hInstance, LPCWSTR className) {
 
 bool InitWindow(HINSTANCE hInstance, LPCWSTR className, LPCWSTR title, int iCmdShow) {
   static constexpr DWORD exStyle = WS_EX_OVERLAPPEDWINDOW;
-  static constexpr DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |
-                                 WS_MAXIMIZEBOX | WS_SIZEBOX;
+  static constexpr DWORD style =
+      WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SIZEBOX;
 
   // Create main window
   mainHwnd = CreateWindowExW(exStyle, className, title, style, CW_USEDEFAULT, CW_USEDEFAULT,
@@ -203,8 +203,7 @@ static bool ToggleMenuCheck(HWND hWnd, UINT id) {
     return false;
   }
   const bool now_checked = !IsMenuChecked(menu, id);
-  CheckMenuItem(menu, id,
-                MF_BYCOMMAND | (now_checked ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(menu, id, MF_BYCOMMAND | (now_checked ? MF_CHECKED : MF_UNCHECKED));
   return now_checked;
 }
 
@@ -213,19 +212,25 @@ static bool ToggleMenuCheck(HWND hWnd, UINT id) {
 // item in sync with the underlying state.
 static UINT SpeedMenuId(Speed speed) {
   switch (speed) {
-    case Speed::Low:  return IDM_SPEED_LOW;
-    case Speed::High: return IDM_SPEED_HIGH;
+    case Speed::Low:
+      return IDM_SPEED_LOW;
+    case Speed::High:
+      return IDM_SPEED_HIGH;
     case Speed::Med:
-    default:          return IDM_SPEED_MED;
+    default:
+      return IDM_SPEED_MED;
   }
 }
 
 static UINT DifficultyMenuId(Difficulty difficulty) {
   switch (difficulty) {
-    case Difficulty::Easy: return IDM_EASY;
-    case Difficulty::Hard: return IDM_HARD;
+    case Difficulty::Easy:
+      return IDM_EASY;
+    case Difficulty::Hard:
+      return IDM_HARD;
     case Difficulty::Med:
-    default:               return IDM_MED;
+    default:
+      return IDM_MED;
   }
 }
 
@@ -235,8 +240,7 @@ static void ApplySpeedSelection(HWND hWnd, Speed speed) {
   SetSpeed(speed);
   HMENU menu = GetMenu(hWnd);
   if (menu != nullptr) {
-    CheckMenuRadioItem(menu, IDM_SPEED_LOW, IDM_SPEED_HIGH,
-                       SpeedMenuId(speed), MF_BYCOMMAND);
+    CheckMenuRadioItem(menu, IDM_SPEED_LOW, IDM_SPEED_HIGH, SpeedMenuId(speed), MF_BYCOMMAND);
   }
 }
 
@@ -244,8 +248,7 @@ static void ApplyDifficultySelection(HWND hWnd, Difficulty difficulty) {
   SetDifficulty(difficulty);
   HMENU menu = GetMenu(hWnd);
   if (menu != nullptr) {
-    CheckMenuRadioItem(menu, IDM_EASY, IDM_HARD,
-                       DifficultyMenuId(difficulty), MF_BYCOMMAND);
+    CheckMenuRadioItem(menu, IDM_EASY, IDM_HARD, DifficultyMenuId(difficulty), MF_BYCOMMAND);
   }
 }
 
@@ -292,8 +295,7 @@ static void SyncPauseMenuCheck(HWND hWnd) {
     return;
   }
   const bool checked = !g_running || g_paused;
-  CheckMenuItem(menu, IDM_PAUSE,
-                MF_BYCOMMAND | (checked ? MF_CHECKED : MF_UNCHECKED));
+  CheckMenuItem(menu, IDM_PAUSE, MF_BYCOMMAND | (checked ? MF_CHECKED : MF_UNCHECKED));
 }
 
 // Welcome-screen convenience: while we're still on the very first
@@ -313,10 +315,8 @@ static void CheckWelcomeAutoStart(HWND hWnd) {
     return;
   }
   const bool any_arrow =
-      (GetAsyncKeyState(VK_UP)    & 0x8000) ||
-      (GetAsyncKeyState(VK_DOWN)  & 0x8000) ||
-      (GetAsyncKeyState(VK_LEFT)  & 0x8000) ||
-      (GetAsyncKeyState(VK_RIGHT) & 0x8000);
+      (GetAsyncKeyState(VK_UP) & 0x8000) || (GetAsyncKeyState(VK_DOWN) & 0x8000) ||
+      (GetAsyncKeyState(VK_LEFT) & 0x8000) || (GetAsyncKeyState(VK_RIGHT) & 0x8000);
   if (!any_arrow) {
     return;
   }
@@ -340,11 +340,11 @@ static void CheckWelcomeAutoStart(HWND hWnd) {
 // both manually: capture the mouse on button-down, snapshot the starting
 // window rect + cursor in screen coords, and update via SetWindowPos in
 // WM_MOUSEMOVE until the matching button-up or WM_CAPTURECHANGED.
-static bool s_moving               = false;
-static bool s_resizing             = false;
-static POINT s_drag_start_cursor   = {0, 0};
-static RECT s_drag_start_window    = {0, 0, 0, 0};
-static WPARAM s_resize_corner      = HTBOTTOMRIGHT;
+static bool s_moving             = false;
+static bool s_resizing           = false;
+static POINT s_drag_start_cursor = {0, 0};
+static RECT s_drag_start_window  = {0, 0, 0, 0};
+static WPARAM s_resize_corner    = HTBOTTOMRIGHT;
 // Smallest window we'll let the right-drag resize produce. Mirrors the
 // floor in WM_GETMINMAXINFO so manual dragging can't undercut it.
 constexpr int kMinResizeWindowSide = 200;
@@ -355,8 +355,7 @@ constexpr int kMinResizeWindowSide = 200;
 // default 1x1 bitmap selected; we save it to s_hbm_default and restore it
 // before DeleteDC so GDI doesn't leak the bitmap we selected in.
 static bool EnsureBackBuffer(HDC hdc_ref, int width, int height) {
-  if (g_hdcMem != nullptr && g_hbmMem != nullptr &&
-      s_back_w == width && s_back_h == height) {
+  if (g_hdcMem != nullptr && g_hbmMem != nullptr && s_back_w == width && s_back_h == height) {
     return true;
   }
   // Recreate from scratch when size changes or first call.
@@ -478,11 +477,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
         GetCursorPos(&cur);
         const int dx = cur.x - s_drag_start_cursor.x;
         const int dy = cur.y - s_drag_start_cursor.y;
-        SetWindowPos(hWnd, nullptr,
-                     s_drag_start_window.left + dx,
-                     s_drag_start_window.top + dy,
-                     0, 0,
-                     SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
+        SetWindowPos(hWnd, nullptr, s_drag_start_window.left + dx, s_drag_start_window.top + dy, 0,
+                     0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
       }
       if (s_resizing) {
         // Compute the new window rect by moving only the dragged
@@ -494,7 +490,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
         GetCursorPos(&cur);
         const int dx = cur.x - s_drag_start_cursor.x;
         const int dy = cur.y - s_drag_start_cursor.y;
-        RECT rect = s_drag_start_window;
+        RECT rect    = s_drag_start_window;
         switch (s_resize_corner) {
           case HTTOPLEFT:
             rect.left += dx;
@@ -528,20 +524,19 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
             rect.bottom = rect.top + kMinResizeWindowSide;
           }
         }
-        SetWindowPos(hWnd, nullptr, rect.left, rect.top,
-                     rect.right - rect.left, rect.bottom - rect.top,
-                     SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(hWnd, nullptr, rect.left, rect.top, rect.right - rect.left,
+                     rect.bottom - rect.top, SWP_NOZORDER | SWP_NOACTIVATE);
       }
       break;
     }
     case WM_LBUTTONUP:
       if (s_moving) {
-        ReleaseCapture();  // triggers WM_CAPTURECHANGED, which clears s_moving
+        ReleaseCapture(); // triggers WM_CAPTURECHANGED, which clears s_moving
       }
       break;
     case WM_RBUTTONUP:
       if (s_resizing) {
-        ReleaseCapture();  // triggers WM_CAPTURECHANGED, which clears s_resizing
+        ReleaseCapture(); // triggers WM_CAPTURECHANGED, which clears s_resizing
       }
       break;
     case WM_CAPTURECHANGED:
@@ -592,7 +587,8 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       // in WM_PAINT so the two operations don't race or double-paint.
       return TRUE;
     case WM_GETMINMAXINFO: {
-      LPMINMAXINFO pMinMaxInfo = reinterpret_cast<LPMINMAXINFO>(lParam);;
+      LPMINMAXINFO pMinMaxInfo = reinterpret_cast<LPMINMAXINFO>(lParam);
+      ;
       pMinMaxInfo->ptMinTrackSize.x = CW_MINWIDTH;
       pMinMaxInfo->ptMinTrackSize.y = CW_MINHEIGHT;
       const int MAXWIDTH            = GetSystemMetrics(SM_CXMAXIMIZED);
@@ -626,10 +622,9 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
         DrawSegmentDisplays(g_hdcMem, client);
         DrawRackets(g_hdcMem, client);
         DrawBall(g_hdcMem, client);
-        BitBlt(hdc, ps.rcPaint.left, ps.rcPaint.top,
-               ps.rcPaint.right  - ps.rcPaint.left,
-               ps.rcPaint.bottom - ps.rcPaint.top,
-               g_hdcMem, ps.rcPaint.left, ps.rcPaint.top, SRCCOPY);
+        BitBlt(hdc, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right - ps.rcPaint.left,
+               ps.rcPaint.bottom - ps.rcPaint.top, g_hdcMem, ps.rcPaint.left, ps.rcPaint.top,
+               SRCCOPY);
       }
       EndPaint(hWnd, &ps);
       break;
@@ -764,13 +759,25 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
         }
         // Speed group (radio). ApplySpeedSelection both updates the
         // engine and switches the radio dot to the chosen item.
-        case IDM_SPEED_LOW:  ApplySpeedSelection(hWnd, Speed::Low);  break;
-        case IDM_SPEED_MED:  ApplySpeedSelection(hWnd, Speed::Med);  break;
-        case IDM_SPEED_HIGH: ApplySpeedSelection(hWnd, Speed::High); break;
+        case IDM_SPEED_LOW:
+          ApplySpeedSelection(hWnd, Speed::Low);
+          break;
+        case IDM_SPEED_MED:
+          ApplySpeedSelection(hWnd, Speed::Med);
+          break;
+        case IDM_SPEED_HIGH:
+          ApplySpeedSelection(hWnd, Speed::High);
+          break;
         // Difficulty group (radio). Only nudges the CPU racket speed.
-        case IDM_EASY: ApplyDifficultySelection(hWnd, Difficulty::Easy); break;
-        case IDM_MED:  ApplyDifficultySelection(hWnd, Difficulty::Med);  break;
-        case IDM_HARD: ApplyDifficultySelection(hWnd, Difficulty::Hard); break;
+        case IDM_EASY:
+          ApplyDifficultySelection(hWnd, Difficulty::Easy);
+          break;
+        case IDM_MED:
+          ApplyDifficultySelection(hWnd, Difficulty::Med);
+          break;
+        case IDM_HARD:
+          ApplyDifficultySelection(hWnd, Difficulty::Hard);
+          break;
         default:
           return DefWindowProcW(hWnd, message, wParam, lParam);
       }

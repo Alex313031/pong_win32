@@ -81,7 +81,6 @@ static std::wstring s_embeddedTempPath;
 static const wchar_t kMciBgmAlias[]    = L"pong_win32_bgm";
 static const wchar_t kBgmHiddenClass[] = L"PongWin32BgmHidden";
 
-
 // Materializes the IDR_BGM_WAV resource to a file in the user's temp
 // directory and returns that path (empty on failure). MCI's string API can
 // only open named files - there is no "play from memory" form - so when
