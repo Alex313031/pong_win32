@@ -260,6 +260,8 @@ static void ApplyMenuDefaults(HWND hWnd) {
   SetPaused(IsMenuChecked(menu, IDM_PAUSE));
   SetPlayerOnLeft(IsMenuChecked(menu, IDM_PLAYER));
   SetSoundOn(IsMenuChecked(menu, IDM_SOUND));
+  SetMusicOn(IsMenuChecked(menu, IDM_MUSIC));
+  SetRoundBall(IsMenuChecked(menu, IDM_ROUNDBALL));
   // Speed / difficulty are radio groups. If no item in a group has CHECKED
   // set in the .rc, default to Med. ApplySpeedSelection/...Difficulty also
   // refresh the radio check so the menu visually matches the runtime state.
@@ -735,12 +737,29 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           InvalidateRect(hWnd, nullptr, FALSE);
           break;
         case IDM_SOUND: {
-          // CHECKED == sound on. kUnMuteMsg is the "sound is now on"
-          // banner, kMuteMsg the "sound is now off" one, so the message
-          // matches the new state, not the previous one.
+          // CHECKED == SFX on (paddle / wall hit beeps). The kMuteMsg /
+          // kUnMuteMsg banners are tied to the SFX toggle; music has its
+          // own independent toggle below.
           const bool now_on = ToggleMenuCheck(hWnd, IDM_SOUND);
           SetSoundOn(now_on);
           SetMessage(now_on ? kUnMuteMsg : kMuteMsg);
+          break;
+        }
+        case IDM_MUSIC: {
+          // CHECKED == background music on. Routes through SetMusicOn,
+          // which writes g_music_on and calls SyncBgm to actually
+          // start / pause MCI playback. No banner - the audible
+          // transition is the feedback.
+          SetMusicOn(ToggleMenuCheck(hWnd, IDM_MUSIC));
+          break;
+        }
+        case IDM_ROUNDBALL: {
+          // Cosmetic ball-shape toggle. Hit-box stays the same kBallSize
+          // AABB; only DrawBall's rendering branches. Full client
+          // invalidate so the change is immediate even while the game is
+          // paused or stopped (no TickBall to push a dirty rect for us).
+          SetRoundBall(ToggleMenuCheck(hWnd, IDM_ROUNDBALL));
+          InvalidateRect(hWnd, nullptr, FALSE);
           break;
         }
         // Speed group (radio). ApplySpeedSelection both updates the

@@ -5,7 +5,8 @@
 #include "utils.h" // GetExeDir for the non-embedded file-source path
 
 // User preference, NOT actual playback state. Declared extern in globals.h.
-volatile bool g_sound_on = false;
+volatile bool g_sound_on = false; // SFX (read by PlayHit in game.cc)
+volatile bool g_music_on = false; // BGM (read by SyncBgm / WorkerReplay)
 
 // Tracks whether MCI is currently playing (vs paused / stopped / unopened).
 // Main-thread only - written exclusively by SyncBgm after the PostBgmSync
@@ -79,6 +80,7 @@ static bool s_mciOpened = false;
 static std::wstring s_embeddedTempPath;
 static const wchar_t kMciBgmAlias[]    = L"pong_win32_bgm";
 static const wchar_t kBgmHiddenClass[] = L"PongWin32BgmHidden";
+
 
 // Materializes the IDR_BGM_WAV resource to a file in the user's temp
 // directory and returns that path (empty on failure). MCI's string API can
@@ -247,7 +249,7 @@ static void WorkerReplay() {
   // to bail rather than restart. (Reading these volatile bools from the
   // worker is benign - both are written by the main thread as plain
   // assignments, and we only need a snapshot here.)
-  if (!s_mciOpened || !g_sound_on || g_paused) {
+  if (!s_mciOpened || !g_music_on || g_paused) {
     return;
   }
   std::wstring cmd = L"play ";
@@ -276,7 +278,7 @@ static bool ProcessCmd(const BgmCmdSlot& slot) {
 // wParam values we might see: MCI_NOTIFY_SUCCESSFUL (natural end-of-clip
 // - we loop), MCI_NOTIFY_SUPERSEDED (another play took over - do nothing),
 // MCI_NOTIFY_ABORTED (stop/close happened - do nothing), MCI_NOTIFY_FAILURE
-// (driver error - do nothing). The g_sound_on guard in WorkerReplay also
+// (driver error - do nothing). The g_music_on guard in WorkerReplay also
 // protects against a late-arriving SUCCESSFUL notification that races a
 // user Pause.
 static LRESULT CALLBACK BgmHiddenWndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -401,10 +403,11 @@ bool StopPlayWav() {
 }
 
 bool SyncBgm() {
-  // Single source of truth: audio plays if the user wants it AND the
-  // game isn't currently paused. If audio is already in the right
+  // Single source of truth: BGM plays if the user wants music AND the
+  // game isn't currently paused. SFX (g_sound_on) is independent of this
+  // - PlayHit gates itself separately. If audio is already in the right
   // state, do nothing.
-  const bool desired = g_sound_on && !g_paused;
+  const bool desired = g_music_on && !g_paused;
   if (desired == s_audio_playing) {
     return true;
   }
@@ -414,7 +417,7 @@ bool SyncBgm() {
       return true;
     }
     // Open / play failed - leave s_audio_playing false; caller sees the
-    // failure and can react (e.g., clear g_sound_on + refresh the UI).
+    // failure and can react (e.g., clear g_music_on + refresh the UI).
     return false;
   }
   // desired == false but audio is currently playing -> pause. PauseWavFile
@@ -424,6 +427,14 @@ bool SyncBgm() {
   PauseWavFile();
   s_audio_playing = false;
   return true;
+}
+
+void SetMusicOn(bool on) {
+  if (g_music_on == on) {
+    return;
+  }
+  g_music_on = on;
+  SyncBgm();
 }
 
 // ---------- Lifecycle -----------------------------------------------------

@@ -87,6 +87,13 @@ void SetPaused(bool paused);
 // CHECKED state in the .rc.
 void SetSoundOn(bool on);
 
+// Round-ball toggle. When true, DrawBall renders the ball as a kBallSize
+// Ellipse (sphere approximation) instead of a flat FillRect square. The
+// physics / hit-box stay the same kBallSize x kBallSize AABB either way,
+// so the toggle is purely cosmetic. Default comes from IDM_ROUNDBALL's
+// CHECKED state in the .rc.
+void SetRoundBall(bool round);
+
 // Game-wide speed setting. Med == the *PxPerSec constants unchanged;
 // Low drops everything by a third, High raises it by a third. Affects
 // ball, player racket, and machine racket together. Setting a new value

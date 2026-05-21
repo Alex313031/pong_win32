@@ -40,6 +40,7 @@
 
 #define IDM_ROUNDBALL               217
 #define IDM_CONSOLE                 218
+#define IDM_MUSIC                   219
 
 // Timers
 #define TIMER_GAME                  300 // Timer ID for game logic/painting

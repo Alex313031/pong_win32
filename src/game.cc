@@ -35,6 +35,10 @@ std::wstring g_message;
 // WM_TIMER tick where it is non-zero does the centering.
 bool g_player_on_left = false;
 
+// Cosmetic ball shape. true = Ellipse (sphere-ish at kBallSize); false
+// (default) = FillRect square. Toggled by IDM_ROUNDBALL.
+bool g_round_ball = false;
+
 // Speed / difficulty settings. Defaults to Med so the unconfigured app
 // matches the raw *PxPerSec constants. SpeedMult() turns the Speed enum
 // into a velocity multiplier for ball and rackets; LagFrames() turns the
@@ -679,14 +683,15 @@ void SetPaused(bool paused) {
 }
 
 void SetSoundOn(bool on) {
-  if (g_sound_on == on) {
-    return;
-  }
+  // SFX only. Music has its own toggle (SetMusicOn in sound.h) that
+  // drives SyncBgm independently. PlayHit gates itself on g_sound_on so
+  // a flip-down here silences bounces on the next hit without further
+  // bookkeeping.
   g_sound_on = on;
-  // SyncBgm starts MCI on flip-up, pauses on flip-down. Hit sounds gate
-  // themselves on g_sound_on inside PlayHit so they don't need anything
-  // more here.
-  SyncBgm();
+}
+
+void SetRoundBall(bool round) {
+  g_round_ball = round;
 }
 
 void SetSpeed(Speed speed) {
@@ -1010,14 +1015,30 @@ void DrawBall(HDC hdc, const RECT& client) {
   }
   const int left_px = static_cast<int>(std::floor(g_ball_x));
   const int top_px  = static_cast<int>(std::floor(g_ball_y));
-  RECT rect;
-  rect.left   = left_px;
-  rect.top    = top_px;
-  rect.right  = left_px + kBallSize;
-  rect.bottom = top_px + kBallSize;
-  HBRUSH hbr = CreateSolidBrush(kBallColor);
-  FillRect(hdc, &rect, hbr);
-  DeleteObject(hbr);
+  if (g_round_ball) {
+    // Sphere approximation: GDI Ellipse over the same kBallSize x kBallSize
+    // bounding box used for the square. Same colour on the pen and brush
+    // so the outline melts into the fill; right/bottom of the bounding
+    // box are exclusive per the Ellipse convention.
+    HPEN hPen      = CreatePen(PS_SOLID, 1, kBallColor);
+    HBRUSH hbr     = CreateSolidBrush(kBallColor);
+    HGDIOBJ oldPen = SelectObject(hdc, hPen);
+    HGDIOBJ oldBr  = SelectObject(hdc, hbr);
+    Ellipse(hdc, left_px, top_px, left_px + kBallSize, top_px + kBallSize);
+    SelectObject(hdc, oldPen);
+    SelectObject(hdc, oldBr);
+    DeleteObject(hPen);
+    DeleteObject(hbr);
+  } else {
+    RECT rect;
+    rect.left   = left_px;
+    rect.top    = top_px;
+    rect.right  = left_px + kBallSize;
+    rect.bottom = top_px + kBallSize;
+    HBRUSH hbr = CreateSolidBrush(kBallColor);
+    FillRect(hdc, &rect, hbr);
+    DeleteObject(hbr);
+  }
 }
 
 bool ConfirmNewGame(HWND hWnd) {

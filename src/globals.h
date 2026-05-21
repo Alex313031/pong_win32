@@ -13,7 +13,8 @@ extern HWND mainHwnd; // Our main window handle
 
 extern volatile bool g_running;  // Controlling global game running/stop state
 extern volatile bool g_paused;   // Pause toggle - tick handlers gate movement on this
-extern volatile bool g_sound_on; // Sound preference - sound.cc owns it, SyncBgm reads it
+extern volatile bool g_sound_on; // SFX (hit/wall bounce) preference - PlayHit reads it
+extern volatile bool g_music_on; // BGM preference - sound.cc / SyncBgm reads it
 
 extern COLORREF g_bkg_color; // Solid bg / bottom of any vertical gradient
 extern COLORREF g_top_color; // Top of any vertical gradient (e.g., message area)

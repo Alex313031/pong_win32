@@ -43,13 +43,19 @@ bool PauseWavFile();
 bool StopPlayWav();
 
 // The one place that starts or stops audio, so playback always matches
-// the rule "audio plays when g_sound_on is true AND the game isn't
+// the rule "audio plays when g_music_on is true AND the game isn't
 // paused". If audio is already in the right state, this does nothing.
-// Call after any change to g_sound_on or g_paused (and once at startup,
+// Call after any change to g_music_on or g_paused (and once at startup,
 // after the menu defaults are loaded). Returns true on success (or when
 // nothing needed to change); returns false only when starting playback
 // failed (MCI open or play error).
 bool SyncBgm();
+
+// Music toggle (independent from SFX). Stores the new value in
+// g_music_on and re-syncs MCI playback. Hit sounds keep gating
+// themselves on g_sound_on inside PlayHit, so changing music doesn't
+// affect bounces and vice versa.
+void SetMusicOn(bool on);
 
 // Spins up the BGM worker thread. The worker owns the MCI device
 // end-to-end - every mciSendString (open, play, pause, resume, stop,

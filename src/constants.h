@@ -7,7 +7,7 @@
 #define RGB_BLACK   RGB(0, 0, 0)
 #define RGB_WHITE   RGB(255, 255, 255)
 #define RGB_GREY    RGB(128, 128, 128)
-#define RGB_DKGREY  RGB(48, 48, 48)
+#define RGB_DKGREY  RGB(38, 38, 38)
 #define RGB_LTGREY  RGB(192, 192, 192) // Classic Win9x/2000 button-face grey
 #define RGB_RED     RGB(255, 0, 0)
 #define RGB_GREEN   RGB(0, 255, 0)
@@ -156,7 +156,7 @@ constexpr int kRacketW                      = 14;
 constexpr int kRacketH                      = 80;
 constexpr int kRacketEdgeMarginX            = 18;
 constexpr float kRacketSpeedPxPerSec        = 400.0f;
-constexpr float kMachineRacketSpeedPxPerSec = 300.0f;
+constexpr float kMachineRacketSpeedPxPerSec = 333.0f;
 
 // ---------------------------------------------------------------------------
 // Speed and difficulty.
