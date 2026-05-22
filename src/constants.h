@@ -156,7 +156,7 @@ constexpr int kRacketW                      = 14;
 constexpr int kRacketH                      = 80;
 constexpr int kRacketEdgeMarginX            = 18;
 constexpr float kRacketSpeedPxPerSec        = 400.0f;
-constexpr float kMachineRacketSpeedPxPerSec = 400.0f;
+constexpr float kMachineRacketSpeedPxPerSec = kRacketSpeedPxPerSec * 0.95f;;
 
 // ---------------------------------------------------------------------------
 // Speed and difficulty.
@@ -171,9 +171,9 @@ constexpr float kMachineRacketSpeedPxPerSec = 400.0f;
 // matches the way the original Pong AI was tuned: it tracked perfectly
 // but with limited speed and a tiny human-like reaction delay, rather
 // than just being raw-speed unfair on harder settings.
-constexpr float kSpeedMultLow  = 0.75;
-constexpr float kSpeedMultMed  = 1.0f;
-constexpr float kSpeedMultHigh = 1.4;
+constexpr float kSpeedMultLow  = 1.0f;
+constexpr float kSpeedMultMed  = 1.333f;
+constexpr float kSpeedMultHigh = 1.667;
 
 // Difficulty is modelled as prediction *lag*, not racket speed: the CPU
 // tracks the ball's y position from N frames ago instead of its current

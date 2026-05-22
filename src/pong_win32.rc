@@ -101,10 +101,11 @@ BEGIN
             MENUITEM "&Normal",    IDM_MED, CHECKED
             MENUITEM "&Aggresive", IDM_HARD
         END
+        MENUITEM SEPARATOR
+        MENUITEM "&Rounded Ball", IDM_ROUNDBALL, CHECKED
     END
     POPUP "&Dev"
     BEGIN
-        MENUITEM "&Rounded Ball",   IDM_ROUNDBALL, CHECKED
         MENUITEM "Hide &Console", IDM_CONSOLE
     END
     POPUP "&About"

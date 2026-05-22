@@ -9,6 +9,10 @@
 #include "strings.h"
 #include "utils.h"
 
+// =========================================================================
+// Globals
+// =========================================================================
+
 // Pause toggle (declared in globals.h). Lives here because TickRackets /
 // TickBall are its only readers. volatile in case future work shifts the
 // tick or input loop onto another thread.
@@ -16,9 +20,13 @@ volatile bool g_paused = false;
 
 namespace {
 
+  // =======================================================================
+  // File-local state
+  //
   // All tuning constants (colours, sizes, speeds, audio frequencies, the
   // per-digit segment masks) live in constants.h so they can be tweaked in
   // one place. This file owns the state and logic.
+  // =======================================================================
 
   // Live score state. File-scope so InitSegmentDisplays / UpdateSegmentDisplay
   // can mutate without exposing the variables to the rest of the program -
@@ -46,30 +54,6 @@ namespace {
   // reads from instead of the live g_ball_y (see g_ai_history below).
   Speed g_speed           = Speed::Med;
   Difficulty g_difficulty = Difficulty::Med;
-
-  float SpeedMult() {
-    switch (g_speed) {
-      case Speed::Low:
-        return kSpeedMultLow;
-      case Speed::High:
-        return kSpeedMultHigh;
-      case Speed::Med:
-      default:
-        return kSpeedMultMed;
-    }
-  }
-
-  int LagFrames() {
-    switch (g_difficulty) {
-      case Difficulty::Easy:
-        return kAiLagFramesEasy;
-      case Difficulty::Hard:
-        return kAiLagFramesHard;
-      case Difficulty::Med:
-      default:
-        return kAiLagFramesMed;
-    }
-  }
 
   // Ring buffer of recent ball y positions for the CPU's prediction lag.
   // TickBall pushes the post-bounce g_ball_y here every frame; the index
@@ -115,6 +99,34 @@ namespace {
   // PRNG for picking the ball's initial direction. random_device-seeded so
   // successive runs don't keep launching the ball the same way.
   std::mt19937 g_rng{std::random_device{}()};
+
+  // =======================================================================
+  // File-local helpers
+  // =======================================================================
+
+  float SpeedMult() {
+    switch (g_speed) {
+      case Speed::Low:
+        return kSpeedMultLow;
+      case Speed::High:
+        return kSpeedMultHigh;
+      case Speed::Med:
+      default:
+        return kSpeedMultMed;
+    }
+  }
+
+  int LagFrames() {
+    switch (g_difficulty) {
+      case Difficulty::Easy:
+        return kAiLagFramesEasy;
+      case Difficulty::Hard:
+        return kAiLagFramesHard;
+      case Difficulty::Med:
+      default:
+        return kAiLagFramesMed;
+    }
+  }
 
   // Fire-and-forget hit sound. PlaySoundW with SND_ASYNC hands the wav off
   // to MSACM (it gets decoded by msadp32.acm on Win2k, which is why the
@@ -471,6 +483,10 @@ namespace {
   }
 
 } // namespace
+
+// =========================================================================
+// Public API
+// =========================================================================
 
 bool InitSegmentDisplays(HWND hWnd) {
   if (hWnd == nullptr) {

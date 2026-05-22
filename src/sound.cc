@@ -4,16 +4,6 @@
 #include "resource.h"
 #include "utils.h" // GetExeDir for the non-embedded file-source path
 
-// User preference, NOT actual playback state. Declared extern in globals.h.
-volatile bool g_sound_on = false; // SFX (read by PlayHit in game.cc)
-volatile bool g_music_on = false; // BGM (read by SyncBgm / WorkerReplay)
-
-// Tracks whether MCI is currently playing (vs paused / stopped / unopened).
-// Main-thread only - written exclusively by SyncBgm after the PostBgmSync
-// call has returned, so the worker never touches it. Lets SyncBgm skip
-// the work when audio is already in the right state.
-static bool s_audio_playing = false;
-
 // ==========================================================================
 // BGM is driven by a dedicated worker thread that owns the MCI device
 // end-to-end.
@@ -46,7 +36,17 @@ static bool s_audio_playing = false;
 // there is no async post path.
 // ==========================================================================
 
-// ---------- Command queue (accessed from both threads under s_bgmCS) ------
+// =========================================================================
+// Globals
+// =========================================================================
+
+// User preference, NOT actual playback state. Declared extern in globals.h.
+volatile bool g_sound_on = false; // SFX (read by PlayHit in game.cc)
+volatile bool g_music_on = false; // BGM (read by SyncBgm / WorkerReplay)
+
+// =========================================================================
+// File-local types
+// =========================================================================
 
 enum class BgmCmd {
   None,
@@ -61,6 +61,17 @@ struct BgmCmdSlot {
   bool use_embedded = false;
 };
 
+// =========================================================================
+// File-local state
+// =========================================================================
+
+// Tracks whether MCI is currently playing (vs paused / stopped / unopened).
+// Main-thread only - written exclusively by SyncBgm after the PostBgmSync
+// call has returned, so the worker never touches it. Lets SyncBgm skip
+// the work when audio is already in the right state.
+static bool s_audio_playing = false;
+
+// Command queue (accessed from both threads under s_bgmCS).
 static CRITICAL_SECTION s_bgmCS;
 static BgmCmdSlot s_slot;
 static bool s_lastResult     = false;
@@ -72,14 +83,34 @@ static HANDLE s_bgmWorker    = nullptr;
 static bool s_bgmInit        = false;
 static bool s_bgmInitOk      = false; // worker setup succeeded
 
-// ---------- Worker-thread-only MCI state ----------------------------------
-// Touched only from BgmWorkerProc; no synchronization needed.
-
+// Worker-thread-only MCI state. Touched only from BgmWorkerProc; no
+// synchronization needed.
 static HWND s_bgmHwnd   = nullptr; // hidden notify target
 static bool s_mciOpened = false;
 static std::wstring s_embeddedTempPath;
 static const wchar_t kMciBgmAlias[]    = L"pong_win32_bgm";
 static const wchar_t kBgmHiddenClass[] = L"PongWin32BgmHidden";
+
+// =========================================================================
+// Static forward declarations
+// =========================================================================
+
+static std::wstring ExtractEmbeddedWavToTemp();
+static bool WorkerOpenPlay(const std::wstring& wav_file, bool use_embedded);
+static bool WorkerResume();
+static bool WorkerPause();
+static bool WorkerStop();
+static void WorkerReplay();
+static bool ProcessCmd(const BgmCmdSlot& slot);
+static LRESULT CALLBACK BgmHiddenWndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp);
+static DWORD WINAPI BgmWorkerProc(LPVOID);
+static bool PostBgmSync(BgmCmd cmd,
+                        const std::wstring& wav = std::wstring(),
+                        bool use_embedded       = false);
+
+// =========================================================================
+// Static helpers
+// =========================================================================
 
 // Materializes the IDR_BGM_WAV resource to a file in the user's temp
 // directory and returns that path (empty on failure). MCI's string API can
@@ -123,8 +154,6 @@ static std::wstring ExtractEmbeddedWavToTemp() {
   }
   return tempPath;
 }
-
-// ---------- Worker-side MCI operations ------------------------------------
 
 // First-time open + play from position 0. `file` is the path MCI opens,
 // either the user-supplied name resolved against the exe dir or the temp
@@ -359,13 +388,9 @@ static DWORD WINAPI BgmWorkerProc(LPVOID) {
   return 0;
 }
 
-// ---------- Post helper (main thread) -------------------------------------
-
 // Post a command and wait for the worker to finish processing it. Returns
 // the worker's bool result. Main thread only.
-static bool PostBgmSync(BgmCmd cmd,
-                        const std::wstring& wav = std::wstring(),
-                        bool use_embedded       = false) {
+static bool PostBgmSync(BgmCmd cmd, const std::wstring& wav, bool use_embedded) {
   if (!s_bgmInit) {
     return false;
   }
@@ -382,7 +407,9 @@ static bool PostBgmSync(BgmCmd cmd,
   return result;
 }
 
-// ---------- Public API ----------------------------------------------------
+// =========================================================================
+// Public API
+// =========================================================================
 
 bool PlayWavFile(const std::wstring& wav_file, bool use_embedded) {
   return PostBgmSync(BgmCmd::Play, wav_file, use_embedded);
@@ -435,8 +462,6 @@ void SetMusicOn(bool on) {
   g_music_on = on;
   SyncBgm();
 }
-
-// ---------- Lifecycle -----------------------------------------------------
 
 bool InitBgm() {
   if (s_bgmInit) {

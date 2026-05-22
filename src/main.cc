@@ -12,34 +12,16 @@
 #include "strings.h"
 #include "utils.h"
 
+// =========================================================================
+// Globals
+// =========================================================================
+
 HWND mainHwnd = nullptr;
 
 HINSTANCE g_hInstance = nullptr;
 
 int cxClient = 0;
 int cyClient = 0;
-
-// Tracks whether the last WM_SIZE minimized the window. Set by WM_SIZE on
-// SIZE_MINIMIZED, cleared by the next non-minimize WM_SIZE. Used to decide
-// whether the just-arrived size event is "we're coming back from a
-// minimize" (restart the tick source) vs. a normal resize (no-op).
-static bool s_was_minimized = false;
-
-// True until the user has first started a game (via F3 / Space, F2, or
-// the welcome auto-start). While true, any arrow-key press from the
-// welcome screen kicks the game off without needing F3. Once the user
-// has interacted in any way that exits the welcome screen, this stays
-// false for the rest of the session - new games and pauses always
-// require F3 / Space to resume.
-static bool s_first_start = true;
-
-// Set to true by the WM_APP_ROUND_WON handler. While true the game is
-// paused on the kWonMsg banner; the IDM_PAUSE / F3 handler treats the
-// next unpause as "start the next round" rather than a normal resume -
-// it resets scores and re-launches the ball. Cleared on any new-game
-// start, the next-round resume, or a game-lost reset so the flag never
-// outlives the round it was set for.
-static bool s_round_pending = false;
 
 // Background colours. g_bkg_color is the solid-fill for the playfield and
 // the bottom of any vertical gradient; g_top_color is the top of a vertical
@@ -63,11 +45,8 @@ volatile bool g_running = false;
 //
 // Declared extern in utils.h so SaveClientBitmap (in utils.cc) can read
 // from it without having to thread a parameter through every call site.
-HDC g_hdcMem                 = nullptr;
-HBITMAP g_hbmMem             = nullptr;
-static HBITMAP s_hbm_default = nullptr; // default 1x1 bitmap, restored on destroy
-static int s_back_w          = 0;
-static int s_back_h          = 0;
+HDC g_hdcMem     = nullptr;
+HBITMAP g_hbmMem = nullptr;
 
 bool g_debug_mode = is_debug;
 // CLI flags. Set by ParseCommandLine before InitLogging runs so the log
@@ -83,11 +62,90 @@ HICON kSmallIcon = nullptr;
 // Whether we have commctl32 5.82 (XP/I.E 6.0)
 bool can_use_582_controls = false;
 
+// =========================================================================
+// File-local state
+// =========================================================================
+
+// Tracks whether the last WM_SIZE minimized the window. Set by WM_SIZE on
+// SIZE_MINIMIZED, cleared by the next non-minimize WM_SIZE. Used to decide
+// whether the just-arrived size event is "we're coming back from a
+// minimize" (restart the tick source) vs. a normal resize (no-op).
+static bool s_was_minimized = false;
+
+// True until the user has first started a game (via F3 / Space, F2, or
+// the welcome auto-start). While true, any arrow-key press from the
+// welcome screen kicks the game off without needing F3. Once the user
+// has interacted in any way that exits the welcome screen, this stays
+// false for the rest of the session - new games and pauses always
+// require F3 / Space to resume.
+static bool s_first_start = true;
+
+// Set to true by the WM_APP_ROUND_WON handler. While true the game is
+// paused on the kWonMsg banner; the IDM_PAUSE / F3 handler treats the
+// next unpause as "start the next round" rather than a normal resume -
+// it resets scores and re-launches the ball. Cleared on any new-game
+// start, the next-round resume, or a game-lost reset so the flag never
+// outlives the round it was set for.
+static bool s_round_pending = false;
+
+// Back-buffer companion state for g_hdcMem / g_hbmMem above. s_hbm_default
+// holds the default 1x1 bitmap that ships pre-selected into a fresh
+// CompatibleDC, so EnsureBackBuffer can restore it before DeleteDC and
+// avoid leaking the bitmap we selected in. s_back_w / s_back_h cache the
+// most recent CompatibleBitmap size so EnsureBackBuffer can no-op when
+// the client hasn't resized.
+static HBITMAP s_hbm_default = nullptr;
+static int s_back_w          = 0;
+static int s_back_h          = 0;
+
 // Latched at startup from the .rc's initial GRAYED flag on IDM_CONSOLE.
 // When true, UpdateConsoleToggleMenu leaves the item alone (no enable,
 // no label swap) and the WM_COMMAND handler refuses to toggle - the
 // .rc gets the final say on whether the feature is available at all.
 static bool s_console_menu_user_disabled = false;
+
+// Mouse-drag window manipulation:
+//   * Left-click drag in the client area  -> move the window.
+//   * Right-click drag in the client area -> resize from the nearest corner.
+//   * Middle click                        -> nothing.
+// We can't use the WM_NCLBUTTONDOWN/HTCAPTION trick for either because the
+// OS's modal move/size loop only exits on a *left* mouse-up - it'd work
+// for moves but resize uses the right button, so for consistency we drive
+// both manually: capture the mouse on button-down, snapshot the starting
+// window rect + cursor in screen coords, and update via SetWindowPos in
+// WM_MOUSEMOVE until the matching button-up or WM_CAPTURECHANGED.
+static bool s_moving             = false;
+static bool s_resizing           = false;
+static POINT s_drag_start_cursor = {0, 0};
+static RECT s_drag_start_window  = {0, 0, 0, 0};
+static WPARAM s_resize_corner    = HTBOTTOMRIGHT;
+
+// Smallest window we'll let the right-drag resize produce. Mirrors the
+// floor in WM_GETMINMAXINFO so manual dragging can't undercut it.
+constexpr int kMinResizeWindowSide = 200;
+
+// =========================================================================
+// Static forward declarations
+// =========================================================================
+
+static bool ParseCommandLine(int argc, LPWSTR argv[]);
+static int ShowVersionAndExit();
+static int ShowHelpAndExit();
+static void UpdateConsoleToggleMenu(HWND hWnd);
+static bool ToggleMenuCheck(HWND hWnd, UINT id);
+static UINT SpeedMenuId(Speed speed);
+static UINT DifficultyMenuId(Difficulty difficulty);
+static void ApplySpeedSelection(HWND hWnd, Speed speed);
+static void ApplyDifficultySelection(HWND hWnd, Difficulty difficulty);
+static void ApplyMenuDefaults(HWND hWnd);
+static void SyncPauseMenuCheck(HWND hWnd);
+static void CheckWelcomeAutoStart(HWND hWnd);
+static bool EnsureBackBuffer(HDC hdc_ref, int width, int height);
+static void DestroyBackBuffer();
+
+// =========================================================================
+// Functions
+// =========================================================================
 
 bool RegisterWndClass(HINSTANCE hInstance, LPCWSTR className) {
   if (kMainIcon == nullptr || kSmallIcon == nullptr) {
@@ -474,25 +532,6 @@ static void CheckWelcomeAutoStart(HWND hWnd) {
   SetMessage(std::wstring());
   SyncPauseMenuCheck(hWnd);
 }
-
-// Mouse-drag window manipulation:
-//   * Left-click drag in the client area  -> move the window.
-//   * Right-click drag in the client area -> resize from the nearest corner.
-//   * Middle click                        -> nothing.
-// We can't use the WM_NCLBUTTONDOWN/HTCAPTION trick for either because the
-// OS's modal move/size loop only exits on a *left* mouse-up - it'd work
-// for moves but resize uses the right button, so for consistency we drive
-// both manually: capture the mouse on button-down, snapshot the starting
-// window rect + cursor in screen coords, and update via SetWindowPos in
-// WM_MOUSEMOVE until the matching button-up or WM_CAPTURECHANGED.
-static bool s_moving             = false;
-static bool s_resizing           = false;
-static POINT s_drag_start_cursor = {0, 0};
-static RECT s_drag_start_window  = {0, 0, 0, 0};
-static WPARAM s_resize_corner    = HTBOTTOMRIGHT;
-// Smallest window we'll let the right-drag resize produce. Mirrors the
-// floor in WM_GETMINMAXINFO so manual dragging can't undercut it.
-constexpr int kMinResizeWindowSide = 200;
 
 // Back-buffer lifecycle helpers. EnsureBackBuffer is called from WM_PAINT
 // each frame - cheap no-op when the cached size matches the client.

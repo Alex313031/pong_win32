@@ -5,6 +5,17 @@
 #include "globals.h"
 #include "resource.h"
 
+// =========================================================================
+// Static forward declarations
+// =========================================================================
+
+static bool GetRawNtVersion(UINT* major, UINT* minor, UINT* build);
+static DWORD GetCommCtrlVersion();
+
+// =========================================================================
+// Functions
+// =========================================================================
+
 // Opens a system Save As dialog and writes a snapshot of the window's
 // client area to a 32-bit BMP file at the path the user chose. On
 // success, if outSavedPath is non-null, the chosen path is written there
