@@ -52,6 +52,7 @@
 
 #define IDR_RACKET_WAV              501 // Racket ball bounce sound
 #define IDR_WALL_WAV                502 // Wall ball bounce sound
+#define IDR_NOTIFY_WAVE             503 // For the About dialo
 
 // Custom posted-message IDs (WM_APP range, guaranteed to not clash with any
 // system / common-control message). Used to defer work that mustn't run

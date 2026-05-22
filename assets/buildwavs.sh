@@ -11,6 +11,8 @@ ffmpeg -y -i ${HERE}/racket.wav -filter:a "volume=0.60" -c:a adpcm_ms -ar 44100 
 
 ffmpeg -y -i ${HERE}/wall.wav -filter:a "volume=0.60" -c:a adpcm_ms -ar 44100 -ac 2 ${TARGET}/wall.wav &&
 
+ffmpeg -y -i ${HERE}/ding.wav -filter:a "volume=1.00" -c:a adpcm_ms -ar 44100 -ac 2 ${TARGET}/notify.wav &&
+
 rm -fv ${HERE}/racket.wav &&
 rm -fv ${HERE}/wall.wav &&
 
