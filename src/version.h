@@ -88,7 +88,7 @@
 #define LEGAL_COPYRIGHT L"\251 2026 Alex313031" // \251 is the © symbol
 
 #define ABOUT_TITLE     L"About " APP_NAME
-#define ABOUT_CONTENT   L"pong_win32"
+#define ABOUT_CONTENT   L"Pong for Windows"
 #define ABOUT_VERSION   L"Version " VERSION_STRING
 #define ABOUT_COPYRIGHT LEGAL_COPYRIGHT
 

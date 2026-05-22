@@ -344,3 +344,34 @@ bool IsCommCtrlAtLeast(const DWORD to_compare) {
   const DWORD kCommCtrlVer = GetCommCtrlVersion();
   return kCommCtrlVer >= to_compare;
 }
+
+// Menu-state helpers. The .rc's CHECKED flags double as default-setting
+// storage - ApplyMenuDefaults reads each item's initial state at startup
+// and pushes it into the engine, so adjusting the defaults is just a
+// matter of toggling CHECKED in the .rc.
+bool IsMenuChecked(HMENU menu, UINT id) {
+  if (menu == nullptr) {
+    return false;
+  }
+  const UINT state = GetMenuState(menu, id, MF_BYCOMMAND);
+  // GetMenuState returns 0xFFFFFFFF when the item isn't found.
+  if (state == static_cast<UINT>(-1)) {
+    return false;
+  }
+  return (state & MF_CHECKED) != 0;
+}
+
+// Reads MF_GRAYED off a menu item so the .rc's GRAYED flag can act as a
+// "this feature is disabled at build time" switch the same way CHECKED
+// acts as a default-on / default-off toggle. Returns false if the item
+// isn't found - missing items aren't "greyed", they're just absent.
+bool IsMenuGrayed(HMENU menu, UINT id) {
+  if (menu == nullptr) {
+    return false;
+  }
+  const UINT state = GetMenuState(menu, id, MF_BYCOMMAND);
+  if (state == static_cast<UINT>(-1)) {
+    return false;
+  }
+  return (state & MF_GRAYED) != 0;
+}

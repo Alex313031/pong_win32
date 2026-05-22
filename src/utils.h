@@ -72,4 +72,10 @@ bool IsWindowsXpOrLater();
 // For checking system's commctl32.dll
 bool IsCommCtrlAtLeast(const DWORD to_compare);
 
+// Gets if a given menu has an item CHECKED or not.
+bool IsMenuChecked(HMENU menu, UINT id);
+
+// Gets if a given menu has an item GRAYED or not.
+bool IsMenuGrayed(HMENU menu, UINT id);
+
 #endif // PONGWIN32_UTILS_H_

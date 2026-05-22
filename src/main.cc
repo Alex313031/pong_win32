@@ -83,6 +83,12 @@ HICON kSmallIcon = nullptr;
 // Whether we have commctl32 5.82 (XP/I.E 6.0)
 bool can_use_582_controls = false;
 
+// Latched at startup from the .rc's initial GRAYED flag on IDM_CONSOLE.
+// When true, UpdateConsoleToggleMenu leaves the item alone (no enable,
+// no label swap) and the WM_COMMAND handler refuses to toggle - the
+// .rc gets the final say on whether the feature is available at all.
+static bool s_console_menu_user_disabled = false;
+
 bool RegisterWndClass(HINSTANCE hInstance, LPCWSTR className) {
   if (kMainIcon == nullptr || kSmallIcon == nullptr) {
     return false;
@@ -207,6 +213,11 @@ static void UpdateConsoleToggleMenu(HWND hWnd) {
   if (menu == nullptr) {
     return;
   }
+  // Respect the .rc's GRAYED flag: if the build disabled this item,
+  // never re-enable it or touch its label.
+  if (s_console_menu_user_disabled) {
+    return;
+  }
   if (!logging::GetIsConsoleAttached()) {
     EnableMenuItem(menu, IDM_CONSOLE, MF_BYCOMMAND | MF_GRAYED);
     return;
@@ -324,22 +335,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
   return static_cast<int>(msg.wParam);
 }
 
-// Menu-state helpers. The .rc's CHECKED flags double as default-setting
-// storage - ApplyMenuDefaults reads each item's initial state at startup
-// and pushes it into the engine, so adjusting the defaults is just a
-// matter of toggling CHECKED in the .rc.
-static bool IsMenuChecked(HMENU menu, UINT id) {
-  if (menu == nullptr) {
-    return false;
-  }
-  const UINT state = GetMenuState(menu, id, MF_BYCOMMAND);
-  // GetMenuState returns 0xFFFFFFFF when the item isn't found.
-  if (state == static_cast<UINT>(-1)) {
-    return false;
-  }
-  return (state & MF_CHECKED) != 0;
-}
-
 // Flips a checkable menu item and returns the new state. Used by the
 // WM_COMMAND handlers so a single line covers "toggle + push into engine".
 static bool ToggleMenuCheck(HWND hWnd, UINT id) {
@@ -410,6 +405,11 @@ static void ApplyMenuDefaults(HWND hWnd) {
   SetSoundOn(IsMenuChecked(menu, IDM_SOUND));
   SetMusicOn(IsMenuChecked(menu, IDM_MUSIC));
   SetRoundBall(IsMenuChecked(menu, IDM_ROUNDBALL));
+  // Latch the .rc's GRAYED flag for IDM_CONSOLE. Must happen before
+  // UpdateConsoleToggleMenu runs (called from wWinMain right after
+  // InitWindow returns) so the latch is in place before the first
+  // enable / label-swap attempt.
+  s_console_menu_user_disabled = IsMenuGrayed(menu, IDM_CONSOLE);
   // Speed / difficulty are radio groups. If no item in a group has CHECKED
   // set in the .rc, default to Med. ApplySpeedSelection/...Difficulty also
   // refresh the radio check so the menu visually matches the runtime state.
@@ -894,10 +894,15 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           break;
         }
         case IDM_CONSOLE: {
-          // Flip the console window's visibility. If no console is
-          // attached (released build, launched from Explorer without
-          // --debug) the menu item is greyed out and we won't get here -
-          // but double-check anyway since menu state can lag.
+          // Flip the console window's visibility. If the .rc disabled
+          // this feature outright, or if no console is attached
+          // (released build, launched from Explorer without --debug),
+          // the menu item is greyed out and we shouldn't get here - but
+          // double-check anyway since accelerators / WM_COMMAND can
+          // arrive even for a greyed item.
+          if (s_console_menu_user_disabled) {
+            break;
+          }
           const HWND console = logging::GetCurrentConsole();
           if (console == nullptr) {
             break;
