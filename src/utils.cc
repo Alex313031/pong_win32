@@ -121,14 +121,14 @@ bool SaveClientBitmap(HWND hWnd, std::wstring* outSavedPath) {
     return false;
   }
   DWORD written = 0;
-  const bool ok = WriteFile(hFile, &bf, sizeof(bf), &written, nullptr) &&
-                  WriteFile(hFile, &bi, sizeof(bi), &written, nullptr) &&
-                  WriteFile(hFile, pixels.data(), bi.biSizeImage, &written, nullptr);
+  const bool success = WriteFile(hFile, &bf, sizeof(bf), &written, nullptr) &&
+                       WriteFile(hFile, &bi, sizeof(bi), &written, nullptr) &&
+                       WriteFile(hFile, pixels.data(), bi.biSizeImage, &written, nullptr);
   CloseHandle(hFile);
-  if (ok && outSavedPath != nullptr) {
+  if (success && outSavedPath != nullptr) {
     *outSavedPath = szFile;
   }
-  return ok;
+  return success;
 }
 
 HFONT GetFont(int size, std::wstring font, bool italic) {
