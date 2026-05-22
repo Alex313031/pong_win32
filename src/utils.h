@@ -27,10 +27,7 @@ extern HBITMAP g_hbmMem;
 bool SaveClientBitmap(HWND hWnd, std::wstring* outSavedPath);
 
 // Gets the desired font at the specified size (in pixels). Face name
-// defaults to Tahoma; `italic` defaults to true to keep the existing
-// marquee call sites italic without having to spell it out at every
-// call. Caller owns the returned HFONT and must DeleteObject it when
-// done. Returns nullptr on failure.
+// defaults to Tahoma; `italic` defaults to false
 HFONT GetFont(int size, std::wstring font = L"Tahoma", bool italic = false);
 
 // Fills a rect with a solid color. Wraps the CreateSolidBrush + FillRect
