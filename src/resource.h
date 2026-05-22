@@ -46,7 +46,7 @@
 #define TIMER_GAME                  300 // Timer ID for game logic/painting
 
 // Embedded background-music WAV. Loaded as a user-defined "WAVE" resource
-// when kUseEmbeddedBgm is true (see utils.h). The RC file binds this ID
+// when kUseEmbeddedBgm is true (see sound.h). The RC file binds this ID
 // to res/music.wav; FindResourceW(L"WAVE") picks it up at runtime.
 #define IDR_BGM_WAV                 500
 
