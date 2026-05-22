@@ -132,7 +132,6 @@ static bool ParseCommandLine(int argc, LPWSTR argv[]);
 static int ShowVersionAndExit();
 static int ShowHelpAndExit();
 static void UpdateConsoleToggleMenu(HWND hWnd);
-static bool ToggleMenuCheck(HWND hWnd, UINT id);
 static UINT SpeedMenuId(Speed speed);
 static UINT DifficultyMenuId(Difficulty difficulty);
 static void ApplySpeedSelection(HWND hWnd, Speed speed);
@@ -391,18 +390,6 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
     DestroyAcceleratorTable(hAccel);
   }
   return static_cast<int>(msg.wParam);
-}
-
-// Flips a checkable menu item and returns the new state. Used by the
-// WM_COMMAND handlers so a single line covers "toggle + push into engine".
-static bool ToggleMenuCheck(HWND hWnd, UINT id) {
-  HMENU menu = GetMenu(hWnd);
-  if (menu == nullptr) {
-    return false;
-  }
-  const bool now_checked = !IsMenuChecked(menu, id);
-  CheckMenuItem(menu, id, MF_BYCOMMAND | (now_checked ? MF_CHECKED : MF_UNCHECKED));
-  return now_checked;
 }
 
 // Maps a Speed enum to the matching menu command ID. Used in both the

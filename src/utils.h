@@ -78,4 +78,7 @@ bool IsMenuChecked(HMENU menu, UINT id);
 // Gets if a given menu has an item GRAYED or not.
 bool IsMenuGrayed(HMENU menu, UINT id);
 
+// Toggles a given menu IDs CHECKED state.
+bool ToggleMenuCheck(HWND hWnd, UINT id);
+
 #endif // PONGWIN32_UTILS_H_

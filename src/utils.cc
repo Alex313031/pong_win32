@@ -386,3 +386,15 @@ bool IsMenuGrayed(HMENU menu, UINT id) {
   }
   return (state & MF_GRAYED) != 0;
 }
+
+// Flips a checkable menu item and returns the new state. Used by the
+// WM_COMMAND handlers so a single line covers "toggle + push into engine".
+bool ToggleMenuCheck(HWND hWnd, UINT id) {
+  HMENU menu = GetMenu(hWnd);
+  if (menu == nullptr) {
+    return false;
+  }
+  const bool now_checked = !IsMenuChecked(menu, id);
+  CheckMenuItem(menu, id, MF_BYCOMMAND | (now_checked ? MF_CHECKED : MF_UNCHECKED));
+  return now_checked;
+}
