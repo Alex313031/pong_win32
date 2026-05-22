@@ -105,7 +105,7 @@ BEGIN
     POPUP "&Dev"
     BEGIN
         MENUITEM "&Rounded Ball",   IDM_ROUNDBALL, CHECKED
-        MENUITEM "Toggle &Console", IDM_CONSOLE
+        MENUITEM "Hide &Console", IDM_CONSOLE
     END
     POPUP "&About"
     BEGIN

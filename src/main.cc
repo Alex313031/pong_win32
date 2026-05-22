@@ -70,6 +70,11 @@ static int s_back_w          = 0;
 static int s_back_h          = 0;
 
 bool g_debug_mode = is_debug;
+// CLI flags. Set by ParseCommandLine before InitLogging runs so the log
+// sink picks up --debug, and so --version / --help can short-circuit
+// wWinMain before the window is created.
+bool g_show_version = false;
+bool g_show_help    = false;
 
 // Store handles to main icon since commonly used
 HICON kMainIcon  = nullptr;
@@ -127,6 +132,97 @@ bool InitWindow(HINSTANCE hInstance, LPCWSTR className, LPCWSTR title, int iCmdS
   return true;
 }
 
+// Walks the wchar_t argv produced by CommandLineToArgvW and flips any of
+// g_debug_mode / g_show_version / g_show_help that the user passed. Each
+// flag accepts the common Win32 / Unix variants (--foo, -foo, -f, /f) so
+// we work the same way from PowerShell, cmd.exe, and a Unix shell under
+// Wine. Returns false only when argv itself is null (i.e. the system
+// failed to split the command line), so wWinMain can give up cleanly
+// before we depend on log output.
+static bool ParseCommandLine(int argc, LPWSTR argv[]) {
+  if (argv == nullptr) {
+    return false;
+  }
+  bool is_debug_mode   = false;
+  bool is_version_mode = false;
+  bool is_help_mode    = false;
+  // argv[0] is the .exe path (CommandLineToArgvW convention); skip it so
+  // a path containing characters that happen to match a flag literal
+  // can't false-trigger one of the wcscmp checks below.
+  for (int i = 1; i < argc; ++i) {
+    wchar_t* arg = argv[i];
+    is_debug_mode |= (wcscmp(arg, L"--debug") == 0) || (wcscmp(arg, L"-d") == 0) ||
+                     (wcscmp(arg, L"-debug") == 0) || (wcscmp(arg, L"/d") == 0) ||
+                     (wcscmp(arg, L"/D") == 0);
+    is_version_mode |= (wcscmp(arg, L"--version") == 0) || (wcscmp(arg, L"-v") == 0) ||
+                       (wcscmp(arg, L"-ver") == 0) || (wcscmp(arg, L"/v") == 0) ||
+                       (wcscmp(arg, L"/V") == 0);
+    is_help_mode |= (wcscmp(arg, L"--help") == 0) || (wcscmp(arg, L"-h") == 0) ||
+                    (wcscmp(arg, L"-?") == 0) || (wcscmp(arg, L"/h") == 0) ||
+                    (wcscmp(arg, L"/H") == 0) || (wcscmp(arg, L"/?") == 0);
+  }
+  if (is_version_mode && !is_help_mode) {
+    g_show_version = true;
+  }
+  if (is_help_mode) {
+    g_show_help = true;
+  }
+  if (is_debug_mode) {
+    g_debug_mode = true;
+  }
+  return true;
+}
+
+// Prints the app name + semver to the attached console (InitLogging has
+// already done the AttachConsole/AllocConsole dance) and returns wWinMain's
+// exit code. `system("pause")` keeps the window open when launched from
+// Explorer so the user can actually read the line.
+static int ShowVersionAndExit() {
+  std::wcout << GetAppName() << GetVersionString() << std::endl;
+  system("pause");
+  return 0;
+}
+
+// Same as above, but for --help. Lists the recognised flags exactly as
+// ParseCommandLine spells them out so the two stay in sync.
+static int ShowHelpAndExit() {
+  std::wcout << L"\n " << ORIG_FILENAME << L" Usage: \n" << std::flush;
+  std::wostringstream wostr;
+  wostr << L"   /d | -d | --debug   : Enable debug logging\n"
+        << L"   /v | -v | --version : Show version info \n"
+        << L"   /? | -h | --help    : Show this Help \n"
+        << std::flush;
+  static const std::wstring kHelpMsg = wostr.str();
+  std::wcout << kHelpMsg.c_str() << std::endl;
+  system("pause");
+  return 0;
+}
+
+// Syncs the Dev -> Hide/Show Console menu entry to the current console
+// state. Greyed when no console is attached (i.e. we launched without
+// --debug from Explorer); otherwise the label flips between "Hide
+// Console" and "Show Console" to mirror the current visibility.
+static void UpdateConsoleToggleMenu(HWND hWnd) {
+  HMENU menu = GetMenu(hWnd);
+  if (menu == nullptr) {
+    return;
+  }
+  if (!logging::GetIsConsoleAttached()) {
+    EnableMenuItem(menu, IDM_CONSOLE, MF_BYCOMMAND | MF_GRAYED);
+    return;
+  }
+  EnableMenuItem(menu, IDM_CONSOLE, MF_BYCOMMAND | MF_ENABLED);
+  const HWND console = logging::GetCurrentConsole();
+  const bool visible = (console != nullptr) && (IsWindowVisible(console) != 0);
+  // SetMenuItemInfoW with MIIM_STRING copies the string, so passing a
+  // string-literal pointer through const_cast is safe.
+  MENUITEMINFOW mii = {};
+  mii.cbSize        = sizeof(mii);
+  mii.fMask         = MIIM_STRING;
+  mii.dwTypeData    = const_cast<LPWSTR>(visible ? L"Hide Console" : L"Show Console");
+  SetMenuItemInfoW(menu, IDM_CONSOLE, FALSE, &mii);
+}
+
 int APIENTRY wWinMain(HINSTANCE hInstance,
                       HINSTANCE hPrevInstance,
                       LPWSTR lpCmdLine,
@@ -147,6 +243,51 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
   static const LPCWSTR appTitle    = name.c_str();
   static const LPCWSTR szClassName = MAIN_WNDCLASS;
 
+  // Parse the command line into a real argv via CommandLineToArgvW
+  // (lpCmdLine is the post-exe-path tail only; we want the full thing
+  // so argv[0] is the exe path that ParseCommandLine's loop skips).
+  // Failure path is "no flags set" - we can't LOG(ERROR) here because
+  // logging isn't initialized yet.
+  int argc     = 0;
+  LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  if (!ParseCommandLine(argc, argv)) {
+    std::wcerr << L"Failed to parse command line, aborting!" << std::endl;
+    return 2;
+  }
+  if (argv != nullptr) {
+    LocalFree(argv);
+  }
+  // Open a conhost window when we have anything text-y to show. Without
+  // any of these flags, the log sink defaults to LOG_NONE - LOG() calls
+  // become near-no-ops, useful in release.
+  const bool open_console = g_debug_mode || g_show_version || g_show_help;
+  const logging::LogDest kLogSink =
+      open_console ? g_debug_mode ? logging::LOG_TO_ALL : logging::LOG_TO_STDERR
+                   : logging::LOG_NONE;
+  static const std::wstring file_name = std::wstring(INTERNAL_NAME);
+  const std::wstring kLogFile         = file_name + L".log";
+  logging::LogInitSettings LoggingSettings;
+  LoggingSettings.log_sink          = kLogSink;
+  LoggingSettings.logfile_name      = kLogFile;
+  LoggingSettings.app_name          = appTitle;
+  LoggingSettings.show_func_sigs    = false;
+  LoggingSettings.show_line_numbers = false;
+  LoggingSettings.show_time         = false;
+  LoggingSettings.full_prefix_level = LOG_ERROR;
+  if (!logging::InitLogging(g_hInstance, LoggingSettings)) {
+    ErrorBox(nullptr, L"Logging Initialization Failure", L"InitLogging failed!");
+    return 3;
+  }
+  logging::SetIsDCheck(is_dcheck);
+  if (g_show_version) {
+    return ShowVersionAndExit();
+  }
+  if (g_show_help) {
+    return ShowHelpAndExit();
+  }
+  LOG(INFO) << L"---- Welcome to " << GetAppName() << L" Win32 ----";
+  LOG(INFO) << L"Version: " << GetVersionString() << (is_debug ? L" DEBUG" : L"");
+
   kMainIcon  = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_MAIN));
   kSmallIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_SMALL));
 
@@ -160,6 +301,10 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
   if (!InitWindow(g_hInstance, szClassName, appTitle, iCmdShow)) {
     return 4;
   }
+  // Grey the Dev -> Toggle Console item when InitLogging left us without
+  // a console (i.e. no --debug). When a console is attached the item is
+  // enabled and clicking it flips visibility.
+  UpdateConsoleToggleMenu(mainHwnd);
 
   HACCEL hAccel = LoadAcceleratorsW(hInstance, MAKEINTRESOURCEW(IDR_MAIN));
   if (hAccel == nullptr) {
@@ -748,6 +893,23 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
           SetMusicOn(ToggleMenuCheck(hWnd, IDM_MUSIC));
           break;
         }
+        case IDM_CONSOLE: {
+          // Flip the console window's visibility. If no console is
+          // attached (released build, launched from Explorer without
+          // --debug) the menu item is greyed out and we won't get here -
+          // but double-check anyway since menu state can lag.
+          const HWND console = logging::GetCurrentConsole();
+          if (console == nullptr) {
+            break;
+          }
+          if (IsWindowVisible(console)) {
+            logging::HideConsole();
+          } else {
+            logging::ShowConsole(false); // false = don't steal focus
+          }
+          UpdateConsoleToggleMenu(hWnd);
+          break;
+        }
         case IDM_ROUNDBALL: {
           // Cosmetic ball-shape toggle. Hit-box stays the same kBallSize
           // AABB; only DrawBall's rendering branches. Full client
@@ -815,6 +977,10 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       break;
     case WM_NCDESTROY:
       mainHwnd = nullptr;
+      // Last message this window will receive. Close the log file /
+      // console cleanly here, before the message loop sees the WM_QUIT
+      // that WM_DESTROY's PostQuitMessage queued.
+      logging::DeInitLogging(g_hInstance);
       break;
     default:
       return DefWindowProcW(hWnd, message, wParam, lParam);
