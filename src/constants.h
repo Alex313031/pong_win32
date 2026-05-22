@@ -19,7 +19,7 @@
 // WM_TIMER delay, set to approx ~60 FPS
 inline constexpr UINT kGameTickDelay = static_cast<UINT>(std::round(16.67f));
 
-// Default desired ant canvas size (NOT the outer window size). wWinMain
+// Default desired client canvas size (NOT the outer window size). wWinMain
 // adds the OS chrome and the toolbar's measured height on top of these
 // to compute the actual outer window size, so the user always gets a
 // CW_WIDTH x CW_HEIGHT game canvas at startup regardless of how tall the
@@ -172,8 +172,8 @@ constexpr float kMachineRacketSpeedPxPerSec = kRacketSpeedPxPerSec * 0.95f;;
 // but with limited speed and a tiny human-like reaction delay, rather
 // than just being raw-speed unfair on harder settings.
 constexpr float kSpeedMultLow  = 1.0f;
-constexpr float kSpeedMultMed  = 1.333f;
-constexpr float kSpeedMultHigh = 1.667;
+constexpr float kSpeedMultMed  = 1.5f;
+constexpr float kSpeedMultHigh = 2.0f;
 
 // Difficulty is modelled as prediction *lag*, not racket speed: the CPU
 // tracks the ball's y position from N frames ago instead of its current

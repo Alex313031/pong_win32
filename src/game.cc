@@ -119,7 +119,13 @@ namespace {
   int LagFrames() {
     switch (g_difficulty) {
       case Difficulty::Easy:
-        return kAiLagFramesEasy;
+        // On High speed, demote Easy to Med lag - Easy lag combined
+        // with the High speed multiplier puts the ball past the racket
+        // before the AI's delayed prediction can catch it, so the
+        // machine basically never scores. Med lag keeps rallies
+        // competitive without making Easy feel like Med across the
+        // board.
+        return (g_speed == Speed::High) ? kAiLagFramesMed : kAiLagFramesEasy;
       case Difficulty::Hard:
         return kAiLagFramesHard;
       case Difficulty::Med:
@@ -430,9 +436,11 @@ namespace {
     g_ball_y = kPlayfieldTopY + 0.5f * (cyClient - kPlayfieldTopY) - 0.5f * kBallSize;
     std::uniform_real_distribution<float> angle_dist(0.0f, static_cast<float>(kMaxLaunchAngle));
     const float angle = angle_dist(g_rng);
-    // Low bit of mt19937 output is a fine 50/50 coin flip; one each for the
-    // horizontal and vertical sign so all four quadrants are reachable.
-    const float sx         = (g_rng() & 1u) ? 1.0f : -1.0f;
+    // Horizontal sign is fixed: the ball always launches toward the
+    // opponent's side so the player isn't blindsided by a serve at their
+    // own paddle. Vertical sign stays a coin flip so the launch angle
+    // varies between up and down.
+    const float sx         = g_player_on_left ? 1.0f : -1.0f;
     const float sy         = (g_rng() & 1u) ? 1.0f : -1.0f;
     const float ball_speed = kBallSpeedPxPerSec * SpeedMult();
     g_ball_dx              = sx * ball_speed * std::cos(angle);
@@ -480,6 +488,92 @@ namespace {
     const float x_sign = ball_now_moves_right ? 1.0f : -1.0f;
     g_ball_dx          = x_sign * speed * std::cos(angle);
     g_ball_dy          = speed * std::sin(angle);
+  }
+
+  // Resolves a ball / racket collision. Returns true on a handled bounce
+  // (caller plays the hit sound). Distinguishes:
+  //   * front-face hit -> existing position-based angle bounce.
+  //   * top/bottom-edge hit -> simple vertical reflection. Without this
+  //     a ball that clipped the top or bottom corner of the racket would
+  //     get warped horizontally to the front face and bounced sideways;
+  //     the player saw the ball "jump" along the racket. The vertical
+  //     reflection has it bounce straight away from the edge it clipped,
+  //     matching the realistic-physics expectation.
+  // Corner approaches (ball was outside on both axes pre-step) are
+  // resolved by time-of-crossing - whichever axis crossed LATER is the
+  // surface that was hit on this step.
+  bool ResolveRacketCollision(float lr_left,
+                              float lr_right,
+                              float lr_top,
+                              float lr_bottom,
+                              float racket_top_y,
+                              bool is_left_racket,
+                              float old_x,
+                              float old_y,
+                              float& nx,
+                              float& ny) {
+    // AABB overlap of the tentative new position with the racket rect.
+    if (!(nx < lr_right && nx + kBallSize > lr_left && ny + kBallSize > lr_top &&
+          ny < lr_bottom)) {
+      return false;
+    }
+    const bool was_above = (old_y + kBallSize <= lr_top);
+    const bool was_below = (old_y >= lr_bottom);
+    const bool was_left  = (old_x + kBallSize <= lr_left);
+    const bool was_right = (old_x >= lr_right);
+    bool vertical_bounce; // true => reflect dy (hit top or bottom edge)
+    if ((was_above || was_below) && !was_left && !was_right) {
+      vertical_bounce = true;
+    } else if ((was_left || was_right) && !was_above && !was_below) {
+      vertical_bounce = false;
+    } else if ((was_above || was_below) && (was_left || was_right)) {
+      // Corner approach. t_x / t_y are the step-fractions at which each
+      // axis enters the racket's span. The axis with the larger t crossed
+      // last - that's the surface hit on this step.
+      const float dx = nx - old_x;
+      const float dy = ny - old_y;
+      float t_x      = 0.0f;
+      float t_y      = 0.0f;
+      if (was_left && dx > 0.0f) {
+        t_x = (lr_left - kBallSize - old_x) / dx;
+      } else if (was_right && dx < 0.0f) {
+        t_x = (lr_right - old_x) / dx;
+      }
+      if (was_above && dy > 0.0f) {
+        t_y = (lr_top - kBallSize - old_y) / dy;
+      } else if (was_below && dy < 0.0f) {
+        t_y = (lr_bottom - old_y) / dy;
+      }
+      vertical_bounce = (t_y > t_x);
+    } else {
+      // Ball was already overlapping the racket before this step - the
+      // racket caught up to it after a previous bounce. Skip to avoid
+      // jitter (same intent as the dx-sign gate the old code had).
+      return false;
+    }
+    if (vertical_bounce) {
+      if (was_above) {
+        ny = 2.0f * (lr_top - kBallSize) - ny;
+      } else {
+        ny = 2.0f * lr_bottom - ny;
+      }
+      g_ball_dy = -g_ball_dy;
+      return true;
+    }
+    // Front-face bounce. Gate on the ball moving INTO the racket's
+    // playfield-facing edge so a (rare) back hit doesn't get warped
+    // through the racket to the wrong side.
+    if (is_left_racket && g_ball_dx < 0.0f) {
+      nx = 2.0f * lr_right - nx;
+      ApplyRacketBounce(ny, racket_top_y, /*ball_now_moves_right=*/true);
+      return true;
+    }
+    if (!is_left_racket && g_ball_dx > 0.0f) {
+      nx = 2.0f * (lr_left - kBallSize) - nx;
+      ApplyRacketBounce(ny, racket_top_y, /*ball_now_moves_right=*/false);
+      return true;
+    }
+    return false;
   }
 
 } // namespace
@@ -913,22 +1007,16 @@ void TickBall(HWND hWnd, float dt) {
     PlayHit(IDR_WALL_WAV);
   }
 
-  // Racket bounce. AABB overlap test gated on the ball moving INTO the
-  // racket's playfield-facing edge (dx sign) - if the racket happens to
-  // overlap the ball while the ball is already moving away (after a
-  // previous bounce), we don't flip the direction back.
+  // Racket bounces. ResolveRacketCollision picks between the angle-based
+  // front bounce and a vertical-reflection edge bounce based on which
+  // surface the ball actually crossed this step.
   if (g_left_racket_y >= 0) {
     const float lr_left   = kRacketEdgeMarginX;
     const float lr_right  = lr_left + kRacketW;
     const float lr_top    = g_left_racket_y;
     const float lr_bottom = lr_top + kRacketH;
-    if (g_ball_dx < 0.0f && nx < lr_right && nx + kBallSize > lr_left && ny + kBallSize > lr_top &&
-        ny < lr_bottom) {
-      nx = 2.0f * lr_right - nx;
-      // Real-Pong-style angle bounce: where the ball hit on the paddle
-      // sets the new vertical component, not the incoming dy. After this
-      // call the ball moves right.
-      ApplyRacketBounce(ny, g_left_racket_y, /*ball_now_moves_right=*/true);
+    if (ResolveRacketCollision(lr_left, lr_right, lr_top, lr_bottom, g_left_racket_y,
+                               /*is_left_racket=*/true, old_x, old_y, nx, ny)) {
       PlayHit(IDR_RACKET_WAV);
     }
   }
@@ -937,10 +1025,8 @@ void TickBall(HWND hWnd, float dt) {
     const float rr_left   = rr_right - kRacketW;
     const float rr_top    = g_right_racket_y;
     const float rr_bottom = rr_top + kRacketH;
-    if (g_ball_dx > 0.0f && nx + kBallSize > rr_left && nx < rr_right && ny + kBallSize > rr_top &&
-        ny < rr_bottom) {
-      nx = 2.0f * (rr_left - kBallSize) - nx;
-      ApplyRacketBounce(ny, g_right_racket_y, /*ball_now_moves_right=*/false);
+    if (ResolveRacketCollision(rr_left, rr_right, rr_top, rr_bottom, g_right_racket_y,
+                               /*is_left_racket=*/false, old_x, old_y, nx, ny)) {
       PlayHit(IDR_RACKET_WAV);
     }
   }

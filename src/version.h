@@ -53,6 +53,12 @@
 
 // clang-format off: Version DEFINES left alone
 
+// These next few lines are where we control version number and copyright year
+// Adhere to semver -> semver.org
+#define MAJOR_VERSION 0
+#define MINOR_VERSION 1
+#define BUILD_VERSION 9
+
 // Macro to convert to string
 #if !defined(_STRINGIZER_)
  #define _STRINGIZER_
@@ -65,12 +71,6 @@
  // Run stringizer above
  #define _VERSION(major,minor,build) STRINGIZE(major) "." STRINGIZE(minor) "." STRINGIZE(build)
 #endif // _VERSION
-
-// These next few lines are where we control version number and copyright year
-// Adhere to semver > semver.org
-#define MAJOR_VERSION 0
-#define MINOR_VERSION 1
-#define BUILD_VERSION 8
 
 // String constants
 #define VERSION_STRING _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION)
