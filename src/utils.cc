@@ -405,3 +405,46 @@ bool ConfirmExit(HWND hWnd) {
                                       MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2);
   return exit_dialog == IDYES;
 }
+
+bool CenterWindowOnScreen(HWND hWnd, bool multimon) {
+  if (hWnd == nullptr) {
+    return false;
+  }
+  RECT window_rect;
+  if (!GetWindowRect(hWnd, &window_rect)) {
+    return false;
+  }
+  const int window_w = window_rect.right - window_rect.left;
+  const int window_h = window_rect.bottom - window_rect.top;
+
+  RECT screen_rect;
+  if (multimon) {
+    // Pick the monitor `hWnd` currently sits on; NEARESTONOTNULL guarantees
+    // a valid HMONITOR even for off-screen windows. rcWork excludes the
+    // taskbar / docked appbars so the centred window doesn't end up half
+    // under them.
+    HMONITOR hMon  = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {};
+    mi.cbSize      = sizeof(mi);
+    if (hMon == nullptr || !GetMonitorInfoW(hMon, &mi)) {
+      return false;
+    }
+    screen_rect = mi.rcWork;
+  } else {
+    // Classic single-monitor path: GetDesktopWindow is the whole primary
+    // screen rect, taskbar and all. Predates the multimon APIs and keeps
+    // working on Win2k for callers that don't care about per-monitor
+    // placement.
+    if (!GetWindowRect(GetDesktopWindow(), &screen_rect)) {
+      return false;
+    }
+  }
+  const int screen_w = screen_rect.right - screen_rect.left;
+  const int screen_h = screen_rect.bottom - screen_rect.top;
+  const int new_x    = screen_rect.left + (screen_w - window_w) / 2;
+  const int new_y    = screen_rect.top + (screen_h - window_h) / 2;
+  // SWP_NOSIZE / NOZORDER / NOACTIVATE: pure reposition, don't disturb
+  // size, stacking order, or focus.
+  return SetWindowPos(hWnd, nullptr, new_x, new_y, 0, 0,
+                      SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE) != FALSE;
+}

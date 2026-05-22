@@ -84,4 +84,13 @@ bool ToggleMenuCheck(HWND hWnd, UINT id);
 // Confirmation dialog for exit
 bool ConfirmExit(HWND hWnd);
 
+// Centers `hWnd` on screen. When `multimon` is true, uses
+// MonitorFromWindow + GetMonitorInfo so the window centres inside the
+// work area (minus the taskbar) of whichever monitor it currently sits
+// on - DPI / multi-display friendly. When false, falls back to the
+// primary display's full desktop rect via GetDesktopWindow, the
+// classic single-monitor approach that ignores the taskbar. Returns
+// false on failure (null hWnd, GetMonitorInfo failure, etc.).
+bool CenterWindowOnScreen(HWND hWnd, bool multimon);
+
 #endif // PONGWIN32_UTILS_H_

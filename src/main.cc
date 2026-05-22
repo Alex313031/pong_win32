@@ -353,7 +353,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
   if (g_show_help) {
     return ShowHelpAndExit();
   }
-  LOG(INFO) << L"---- Welcome to " << GetAppName() << L" Win32 ----";
+  LOG(INFO) << L"---- Welcome to " << GetAppName() << L" ----";
   LOG(INFO) << L"Version: " << GetVersionString() << (is_debug ? L" DEBUG" : L"");
 
   kMainIcon  = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_MAIN));
@@ -578,6 +578,10 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       if (mainHwnd == nullptr) {
         mainHwnd = hWnd; // Prevent race condition in InitApp
       }
+      // WM_CREATE fires before ShowWindow, so the user never sees the
+      // CW_USEDEFAULT-placed window flash on screen before it slides
+      // into the centred position.
+      CenterWindowOnScreen(hWnd, /*multimon=*/true);
       InitApp(hWnd);
       break;
     case WM_TIMER: {
