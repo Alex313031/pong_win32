@@ -81,4 +81,7 @@ bool IsMenuGrayed(HMENU menu, UINT id);
 // Toggles a given menu IDs CHECKED state.
 bool ToggleMenuCheck(HWND hWnd, UINT id);
 
+// Confirmation dialog for exit
+bool ConfirmExit(HWND hWnd);
+
 #endif // PONGWIN32_UTILS_H_

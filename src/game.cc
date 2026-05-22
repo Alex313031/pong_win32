@@ -1135,10 +1135,3 @@ bool ConfirmNewGame(HWND hWnd) {
                   MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON1);
   return new_game_dialog == IDYES;
 }
-
-// Confirmation dialog for exit
-bool ConfirmExit(HWND hWnd) {
-  const int exit_dialog = MessageBoxW(hWnd, L"Are you sure you want to Exit?", L"Confirm Exit Game",
-                                      MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2);
-  return exit_dialog == IDYES;
-}

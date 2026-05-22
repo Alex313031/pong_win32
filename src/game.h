@@ -157,7 +157,4 @@ void DrawBall(HDC hdc, const RECT& client);
 // Confirmation dialog for new game
 bool ConfirmNewGame(HWND hWnd);
 
-// Confirmation dialog for exit
-bool ConfirmExit(HWND hWnd);
-
 #endif // PONGWIN32_GAME_H_
