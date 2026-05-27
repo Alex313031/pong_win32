@@ -2,6 +2,7 @@
 #define PONGWIN32_MAIN_H_
 
 #include "framework.h"
+#include <timeapi.h>  // timeBeginPeriod / timeEndPeriod
 
 // Registers our window class, one of the first things to run.
 bool RegisterWndClass(HINSTANCE hInstance, LPCWSTR className);

@@ -28,7 +28,8 @@ make -B all -j# (where # is number of jobs)
 ```
 
 ### With GN/Ninja
-[Chromium](https://www.chromium.org) uses a build system with [GN](https://gn.googlesource.com/gn/+/refs/heads/main/README.md) and [Ninja](https://ninja-build.org/).
+This uses the same build system as [Chromium](https://www.chromium.org):
+[GN](https://gn.googlesource.com/gn/+/refs/heads/main/README.md) + [Ninja](https://ninja-build.org/).
 
 I have made a minimal, modified version configured specifically for compiling Win32 programs
 for legacy Windows called [gn-legacy](https://github.com/Alex313031/gn-legacy).  

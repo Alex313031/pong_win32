@@ -75,6 +75,8 @@ constexpr unsigned char kDigitSegs[10] = {
     0b1101111, // 9: a b c d f g
 };
 
+static inline constexpr UINT kTimerResolution = 1u; // Minimum timer resolution
+
 // Geometry for one 3-digit display. These are tuned to look right at the
 // default 1024x800 canvas; if we later want them to scale with the window,
 // this is the single place to thread cxClient through. kSegT is even so the

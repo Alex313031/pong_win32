@@ -325,6 +325,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
   if (argv != nullptr) {
     LocalFree(argv);
   }
+  timeBeginPeriod(kTimerResolution); // Increase default timer resolution
   // Open a conhost window when we have anything text-y to show. Without
   // any of these flags, the log sink defaults to LOG_NONE - LOG() calls
   // become near-no-ops, useful in release.
@@ -389,6 +390,7 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
   if (hAccel != nullptr) {
     DestroyAcceleratorTable(hAccel);
   }
+  timeEndPeriod(kTimerResolution); // restore default timer resolution on exit
   return static_cast<int>(msg.wParam);
 }
 
