@@ -241,7 +241,8 @@ static bool ParseCommandLine(int argc, LPWSTR argv[]) {
 // exit code. `system("pause")` keeps the window open when launched from
 // Explorer so the user can actually read the line.
 static int ShowVersionAndExit() {
-  std::wcout << GetAppName() << GetVersionString() << std::endl;
+  std::wcout << L"\n " << GetAppName() << L" Version "
+             << GetVersionString() << L"\n " << std::endl;
   system("pause");
   return 0;
 }
@@ -297,6 +298,8 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
                       int iCmdShow) {
   UNREFERENCED_PARAMETER(hPrevInstance);
   g_hInstance = hInstance;
+  // Set priority higher
+  SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
   // Initialize common controls
   INITCOMMONCONTROLSEX icex;
   icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
@@ -995,6 +998,7 @@ LRESULT CALLBACK WindowProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lPara
       ShutDownApp();
       break;
     case WM_QUERYENDSESSION:
+      LOG(DEBUG) << L"Window station is going down now!";
       return TRUE;
     case WM_DESTROY:
       // If the window is dying mid-drag (e.g. Alt+F4 while a mouse button

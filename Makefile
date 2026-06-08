@@ -78,7 +78,7 @@ $(TARGET): $(OBJ_C) $(OBJ_CPP) $(OBJ_RC)
 	$(CC) $(CFLAGS) -static -c $< -o $@
 
 # Compile C++ sources
-%.o: %.h %.hpp %.cc %.cpp
+%.o: %.h %.cc
 	$(CXX) $(CXXFLAGS) -static -c $< -o $@
 
 # Compile .rc → .o or .res

@@ -1,6 +1,6 @@
 // {{NO_DEPENDENCIES}}
 // For #define-ing static resources for resource script file(s).
-// Used by resource.rc
+// Used by pong_win32.rc
 
 // clang-format off
 

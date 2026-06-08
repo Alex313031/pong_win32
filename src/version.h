@@ -64,32 +64,40 @@
  #define _STRINGIZER_
  #define _STRINGIZER(in) #in
  #define STRINGIZE(in) _STRINGIZER(in)
+ // Wide-string variant: L ## "x" -> L"x". Two levels so the argument expands
+ // before the L## paste widens the resulting narrow literal.
+ #define _WIDEN(in) L ## in
+ #define WIDEN(in) _WIDEN(in)
 #endif // !defined(_STRINGIZER_)
 
 // Main version constant
 #ifndef _VERSION
  // Run stringizer above
- #define _VERSION(major,minor,build) STRINGIZE(major) "." STRINGIZE(minor) "." STRINGIZE(build)
+ #define _VERSION(major,minor,build) WIDEN(STRINGIZE(major.minor.build))
 #endif // _VERSION
 
 // String constants
 #define VERSION_STRING _VERSION(MAJOR_VERSION, MINOR_VERSION, BUILD_VERSION)
 
-#define APP_NAME        L"Pong Win32"   // Name of the App
+// Bare-token name/identifier so STRINGIZE can fold them into single literals.
+#define APP_NAME_TOKENS Pong Win32
+#define INTERNAL_TOKENS pong_win32
+
+#define APP_NAME        WIDEN(STRINGIZE(APP_NAME_TOKENS)) // L"Pong Win32"
 #define MAIN_WNDCLASS   L"PongWin32" // Our main Window Class unique name
 
 #define COMMENTS        L"https://github.com/Alex313031/pong_win32" // Project GitHub URL
 #define COMPANYNAME     L"Alex313031" // My developer name
 #define FILE_DESCRIPT   L"Pong Game Windows Implementation" // File description
-#define INTERNAL_NAME   L"pong_win32" // "Internal" name, also used for .exe name
-#define ORIG_FILENAME   INTERNAL_NAME L".exe" // Generated .exe file name
+#define INTERNAL_NAME   WIDEN(STRINGIZE(INTERNAL_TOKENS)) // L"pong_win32"
+#define ORIG_FILENAME   WIDEN(STRINGIZE(INTERNAL_TOKENS.exe)) // L"pong_win32.exe"
 #define PRODUCT_NAME    APP_NAME // Product name
 #define TRADEMARKS      L"BSD-3" // License
 #define LEGAL_COPYRIGHT L"\251 2026 Alex313031" // \251 is the © symbol
 
-#define ABOUT_TITLE     L"About " APP_NAME
+#define ABOUT_TITLE     WIDEN(STRINGIZE(About APP_NAME_TOKENS))
 #define ABOUT_CONTENT   L"Pong for Windows"
-#define ABOUT_VERSION   L"Version " VERSION_STRING
+#define ABOUT_VERSION   WIDEN(STRINGIZE(Version MAJOR_VERSION.MINOR_VERSION.BUILD_VERSION))
 #define ABOUT_COPYRIGHT LEGAL_COPYRIGHT
 
 #ifndef _PACKVERSION

@@ -252,11 +252,10 @@ bool ErrorBox(HWND hWnd, const std::wstring& title, const std::wstring& message)
 }
 
 const std::wstring GetVersionString() {
-  // VERSION_STRING is a narrow C string literal built by stringize macros,
-  // so we can't feed it straight to std::wstring. Build the wide form
-  // directly from the same integer macros (single source of truth in
-  // version.h) - std::to_wstring keeps it standards-clean across MinGW
-  // and MSVC alike.
+  // Build the wide version string from the integer macros, the single source
+  // of truth in version.h. VERSION_STRING is a wide literal now and could be
+  // returned directly; std::to_wstring is kept to stay standards-clean across
+  // MinGW and MSVC alike.
   return std::to_wstring(MAJOR_VERSION) + L"." + std::to_wstring(MINOR_VERSION) + L"." +
          std::to_wstring(BUILD_VERSION);
 }

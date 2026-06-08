@@ -17,7 +17,7 @@
 #define RGB_MAGENTA RGB(255, 0, 255)
 
 // WM_TIMER delay, set to approx ~60 FPS
-inline constexpr UINT kGameTickDelay = static_cast<UINT>(std::round(16.67f));
+inline const UINT kGameTickDelay = static_cast<UINT>(std::round(16.67f));
 
 // Default desired client canvas size (NOT the outer window size). wWinMain
 // adds the OS chrome and the toolbar's measured height on top of these
